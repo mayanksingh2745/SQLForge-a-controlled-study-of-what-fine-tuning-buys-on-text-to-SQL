@@ -124,11 +124,11 @@ SQLForge/
 │   │   └── tracker.py             # ExperimentTracker creating artifacts/runs/
 │   ├── data/                      # Ingestion adapters, contamination auditor, isolation guards, manifests
 
-│   ├── models/                    # Planned: Local & API model runners
-│   ├── prompting/                 # Planned: Schema serializers & few-shot retrievers
+│   ├── models/                    # Model runners: LocalHFModelRunner, OpenAIRunner, MockModelRunner
+│   ├── prompting/                 # Schema serializers, BM25 retriever, and PromptEngine
+│   ├── pipeline/                  # Pipeline harnesses: MockPipelineHarness, BaselinePipelineHarness
+│   ├── evaluation/                # ExecutionComparator, SQLite query sandbox, bootstrap statistics
 │   ├── training/                  # Planned: LoRA/QLoRA fine-tuning engines
-│   ├── execution/                 # Planned: Hardened read-only execution sandboxes
-│   ├── evaluation/                # Planned: Execution accuracy & error taxonomy
 │   ├── optimization/              # Planned: AWQ/GGUF quantization & latency profiler
 │   ├── serving/                   # Planned: Lightweight vLLM/FastAPI server
 │   └── utils/                     # Environment diagnostics and system helpers
@@ -218,6 +218,16 @@ sqlforge pipeline mock
 
 # Custom config, fixtures, and artifact directory
 sqlforge pipeline mock --config configs/mock_pipeline.yaml --artifact-dir artifacts/runs
+
+# Baseline evaluation dry run (0-shot and 3-shot BM25 RAG)
+sqlforge baseline run --model qwen25_coder_1_5b --dry-run
+sqlforge baseline run --model frontier_api_ref --k-shots 3 --dry-run
+
+# Cryptographic manifest verification of a completed run
+sqlforge baseline verify <RUN_ID>
+
+# Paired statistical comparison with McNemar test and bootstrap CIs
+sqlforge baseline stats <RUN_A> --compare-to <RUN_B>
 ```
 
 ---
@@ -247,7 +257,7 @@ pytest -v tests/       # Unit & integration tests
 ## 6. Defensive SQL Execution Architecture
 
 > [!NOTE]
-> **Design Specification:** The defensive execution boundaries below are codified as policies in [`SECURITY.md`](SECURITY.md), [`ADR-001`](docs/decisions/ADR-001-sqlite-sandboxing.md), and [`configs/evaluation.yaml`](configs/evaluation.yaml). Their software implementation in Python will be developed and tested in **Step 9: Hardened Database Execution Engine & Normalizer**.
+> **Design Specification:** The defensive execution boundaries below are codified as policies in [`SECURITY.md`](SECURITY.md), [`ADR-001`](docs/decisions/ADR-001-sqlite-sandboxing.md), and [`configs/evaluation.yaml`](configs/evaluation.yaml). The initial execution comparator is implemented in `src/sqlforge/evaluation/comparator.py` with full database sandboxing scheduled for **Step 9: Hardened Database Execution Engine & Normalizer**.
 
 Generated SQL is untrusted code. SQLForge establishes strict multi-layer boundaries:
 * **Connection-Level Read-Only Mode:** SQLite connections use `file:...?mode=ro` preventing any schema or row mutations.
@@ -266,8 +276,8 @@ Generated SQL is untrusted code. SQLForge establishes strict multi-layer boundar
 - [x] **Step 2: Repository Implementation Review & Core Pipeline Harness**
 - [x] **Step 3: Dataset Ingestion & Contamination Audit (Spider, BIRD, Custom Held-Out)**
 - [x] **Step 4: Schema Representation & Few-Shot RAG Pipeline**
-- [ ] **Step 5: Frontier API Reference & Zero-Shot Baselines (Next Step)**
-- [ ] **Step 6: Supervised Fine-Tuning Setup (LoRA vs QLoRA)**
+- [x] **Step 5: Frontier API Reference & Zero-Shot Baselines**
+- [ ] **Step 6: Supervised Fine-Tuning Setup (LoRA vs QLoRA) (Next Step)**
 - [ ] **Step 7: LoRA Hyperparameter & Rank Scaling Sweeps**
 - [ ] **Step 8: Training Data Scaling & Synthetic vs. Human Data**
 - [ ] **Step 9: Hardened Database Execution Engine & Normalizer**
