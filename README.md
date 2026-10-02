@@ -27,23 +27,30 @@ Commercial frontier models (e.g., GPT-4o, Claude 3.5 Sonnet) achieve strong zero
 
 ## 2. Current Implementation Status & Functional Boundaries
 
-The project is currently at the **Pre-Step-2 Structural Integrity Gate** (Steps 0 and 1 completed; Step 2 pipeline harness not yet started). Functionality is strictly categorized as follows:
+The project has completed **Step 2: Foundation Hardening and Core Pipeline Harness** (Steps 0, 1, and 2 completed; Step 3 dataset ingestion is next). Functionality is strictly categorized as follows:
 
 ### Implemented and Tested
 * **Architecture & Packaging:** Clean layout (`src/sqlforge/`, `configs/`, `docs/`, `tests/`), `pyproject.toml` packaging, and 6-job GitHub Actions CI testing Python 3.11, 3.12, 3.13 on Ubuntu and Windows.
-* **Typed Data Contracts:** Pydantic models in `src/sqlforge/schemas/` for datasets, models, training parameters, evaluation metrics (SVR, ESR, EX, EM), execution sandboxes, and run manifests.
-* **Layered YAML Configuration:** Centralized config hierarchy (`configs/defaults`, `datasets`, `models`, `experiments`, `evaluation`) validated via `sqlforge config validate`.
-* **CLI & Developer Tooling:** `sqlforge env` system diagnostics, `sqlforge config validate`, and `sqlforge experiment init`.
-* **Local Experiment Tracking:** `ExperimentTracker` (`src/sqlforge/experiments/tracker.py`) featuring collision-safe directory allocation, frozen config snapshots, runtime environment capture, and SHA-256 cryptographic manifests (`manifest.json`).
-* **Reproducibility Foundation:** Seed management (`set_seed`), platform auditing, and Git working tree dirty-status verification.
-* **Automated Test Suite:** Unit and integration tests passing 100% locally and in CI.
+* **Typed Data Contracts:** Pydantic models in `src/sqlforge/schemas/` for datasets, models, training parameters, evaluation metrics (SVR, ESR, EX, EM with alias reconciliation and CI bounds), execution sandboxes, and run manifests.
+* **Layered YAML Configuration:** Centralized config hierarchy (`configs/defaults`, `datasets`, `models`, `experiments`, `mock_pipeline`) validated via `sqlforge config validate`.
+* **Hardened Local Experiment Tracking:** `ExperimentTracker` (`src/sqlforge/experiments/tracker.py`) featuring conservative run ID validation (regex, length, path containment), atomic directory reservation (`mkdir` collision safety), non-destructive anomaly logging with error handling, strict cryptographic run verification (`manifest.json` self-exclusion, untracked file detection, record parsing), and frozen config snapshots.
+* **Deterministic Core Pipeline Harness (Mock Vertical Slice):**
+  - Typed fixture dataset loader with duplicate detection (`src/sqlforge/data/fixtures.py`, `tests/fixtures/dataset/mock_spider.json`).
+  - Independent prompt builder (`src/sqlforge/prompting/builder.py`).
+  - Offline mock model runner with explicit synthetic disclaimers (`src/sqlforge/models/mock.py`).
+  - Mock evaluator verifying contract serialization without claiming benchmark accuracy (`src/sqlforge/evaluation/mock_eval.py`).
+  - End-to-end pipeline harness orchestrator (`src/sqlforge/pipeline/harness.py`).
+  - Executable CLI command: `sqlforge pipeline mock` (with `--dry-run`, `--config`, `--fixtures`, `--artifact-dir`, `--fail-mode`).
+* **Developer Tooling & CLI:** `sqlforge env` diagnostics, `sqlforge config validate`, `sqlforge experiment init`, and `sqlforge pipeline mock`.
+* **Reproducibility Foundation:** Seed management (`set_seed`), platform auditing, Git working tree dirty-status verification, and `requirements-constraints.txt`.
+* **Automated Test Suite:** 60 automated unit and integration tests passing 100% locally and in CI.
 
 ### Specified but Not Yet Implemented
 * **Research Specifications:** Hypotheses with TOST equivalence margins, baseline tiers B0–B3/T1–T3, dataset governance protocols, and 10-experiment staged matrix in [`docs/research/`](docs/research/).
 * **Data Pipelines & Leakage Checks:** Ingestion adapters for Spider and BIRD mini-dev, custom held-out schema builder, and automated $n$-gram/AST overlap checks (scheduled for Step 3).
 * **Prompt Assembly & Retrieval:** DDL/compact schema formatters and BM25/dense training-set retriever (scheduled for Step 4).
 * **Database Execution Engine:** Read-only SQLite connection sandboxing (`mode=ro`), 10.0s query timeout watchdogs, and memory limits (scheduled for Step 9).
-* **Model Training & Evaluation Harness:** LoRA/QLoRA trainer (Step 6) and multiset execution comparator (Step 9/10).
+* **Model Training & Evaluation Harness:** Real LoRA/QLoRA trainer (Step 6) and multiset execution comparator (Step 9/10).
 * **Quantization & Serving Benchmarks:** AWQ/GGUF exports and vLLM high-concurrency benchmarks (Step 11).
 
 ### Planned
@@ -170,6 +177,21 @@ Create a traceable experiment directory with frozen configuration and hardware m
 sqlforge experiment init --name pilot_run --seed 42
 ```
 
+### Run the End-to-End Mock Pipeline Harness
+
+Execute the deterministic, offline mock pipeline vertical slice to verify configuration, data contracts, prompt construction, mock inference, mock evaluation, and cryptographic run verification:
+
+```bash
+# Dry-run validation (checks config and fixtures without creating run artifacts)
+sqlforge pipeline mock --dry-run
+
+# Full mock pipeline execution and manifest verification
+sqlforge pipeline mock
+
+# Custom config, fixtures, and artifact directory
+sqlforge pipeline mock --config configs/mock_pipeline.yaml --artifact-dir artifacts/runs
+```
+
 ---
 
 ## 5. Development Quality Checks
@@ -213,7 +235,7 @@ Generated SQL is untrusted code. SQLForge establishes strict multi-layer boundar
 
 - [x] **Step 0: Project Foundation, Repository & Architecture**
 - [x] **Step 1: Research Specification & Experimental Design** ([docs/research/](docs/research/))
-- [ ] **Step 2: Repository Implementation Review & Core Pipeline Harness**
+- [x] **Step 2: Repository Implementation Review & Core Pipeline Harness**
 - [ ] **Step 3: Dataset Ingestion & Contamination Audit (Spider, BIRD, Custom Held-Out)**
 - [ ] **Step 4: Schema Representation & Few-Shot RAG Pipeline**
 - [ ] **Step 5: Frontier API Reference & Zero-Shot Baselines**

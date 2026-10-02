@@ -2,11 +2,12 @@
 
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from sqlforge.reproducibility import (
     generate_run_id,
@@ -16,13 +17,66 @@ from sqlforge.reproducibility import (
 from sqlforge.schemas.evaluation import EvaluationMetrics, GenerationResult
 from sqlforge.schemas.experiments import HardwareMetadata, RunMetadata
 
+# Conservative run ID format: alphanumeric, underscore, and hyphen only (max 128 chars)
+RUN_ID_REGEX = re.compile(r"^[a-zA-Z0-9_\-]+$")
+MAX_RUN_ID_LENGTH = 128
+
+
+def validate_run_id(run_id: str) -> str:
+    """Validate that a run identifier satisfies conservative naming rules.
+
+    Args:
+        run_id: Candidate run identifier string.
+
+    Returns:
+        The validated run identifier.
+
+    Raises:
+        ValueError: If the identifier is empty, exceeds maximum length, contains
+            path separators, or contains invalid characters.
+    """
+    if not run_id or not isinstance(run_id, str):
+        raise ValueError("Run ID must be a non-empty string.")
+    if len(run_id) > MAX_RUN_ID_LENGTH:
+        raise ValueError(f"Run ID exceeds maximum length of {MAX_RUN_ID_LENGTH} characters.")
+    if not RUN_ID_REGEX.match(run_id):
+        raise ValueError(
+            f"Invalid run ID '{run_id}'. Run IDs must contain only alphanumeric characters, "
+            f"underscores, and hyphens, and cannot contain path separators or traversal characters."
+        )
+    return run_id
+
 
 class ExperimentTracker:
     """Manages experiment runs, configuration snapshots, and metric persistence locally."""
 
     def __init__(self, base_artifact_dir: Path | str = "artifacts/runs"):
-        self.base_dir = Path(base_artifact_dir)
+        self.base_dir = Path(base_artifact_dir).resolve()
         self.base_dir.mkdir(parents=True, exist_ok=True)
+
+    def _resolve_run_dir(self, run_id: str) -> Path:
+        """Safely resolve a run directory beneath the base artifact directory.
+
+        Guarantees path containment and rejects any path traversal attempts.
+
+        Args:
+            run_id: Run identifier to resolve.
+
+        Returns:
+            Resolved absolute Path to the run directory.
+
+        Raises:
+            ValueError: If run_id is invalid or attempts to escape base_dir.
+        """
+        validated_id = validate_run_id(run_id)
+        run_dir = (self.base_dir / validated_id).resolve()
+
+        # Strict boundary check: run_dir must be an immediate child of base_dir
+        if run_dir.parent != self.base_dir:
+            raise ValueError(
+                f"Path containment violation: run ID '{run_id}' resolves outside artifact root."
+            )
+        return run_dir
 
     def init_run(
         self,
@@ -32,6 +86,8 @@ class ExperimentTracker:
         run_id: str | None = None,
     ) -> RunMetadata:
         """Initialize a new local experiment run and snapshot its environment and configuration.
+
+        Uses atomic directory reservation to reject any pre-existing directory (empty or populated).
 
         Args:
             experiment_name: Name of experiment configuration or paradigm.
@@ -43,18 +99,20 @@ class ExperimentTracker:
             Instantiated RunMetadata.
 
         Raises:
-            FileExistsError: If a run directory with the given run_id already exists and is non-empty.
+            ValueError: If run_id is invalid or violates path boundaries.
+            FileExistsError: If a run directory with the given run_id already exists.
         """
-        resolved_run_id = run_id or generate_run_id(prefix=experiment_name)
-        run_dir = self.base_dir / resolved_run_id
+        resolved_run_id = generate_run_id(prefix=experiment_name) if run_id is None else run_id
+        run_dir = self._resolve_run_dir(resolved_run_id)
 
-        # Collision-safe check: Never silently overwrite an existing populated run
-        if run_dir.exists() and any(run_dir.iterdir()):
+        # Atomic directory reservation: fail if directory exists (even if empty)
+        try:
+            run_dir.mkdir(parents=False, exist_ok=False)
+        except FileExistsError as exc:
             raise FileExistsError(
-                f"Collision detected: Run directory already exists and is non-empty: {run_dir}"
-            )
-
-        run_dir.mkdir(parents=True, exist_ok=True)
+                f"Collision detected: Run directory already exists: '{run_dir}'. "
+                f"Cannot initialize an existing run."
+            ) from exc
 
         # Convert config to dict
         config_dict: dict[str, Any]
@@ -106,8 +164,16 @@ class ExperimentTracker:
         run_id: str,
         generation: GenerationResult | dict[str, Any],
     ) -> Path:
-        """Append an individual query generation record to generations.jsonl."""
-        run_dir = self.base_dir / run_id
+        """Append an individual query generation record to generations.jsonl.
+
+        Args:
+            run_id: Target experiment run ID.
+            generation: Generation record (GenerationResult or dict).
+
+        Returns:
+            Path to updated generations.jsonl.
+        """
+        run_dir = self._resolve_run_dir(run_id)
         if not run_dir.exists():
             raise FileNotFoundError(f"Run directory not found: {run_dir}")
 
@@ -128,21 +194,45 @@ class ExperimentTracker:
         run_id: str,
         anomaly: dict[str, Any],
     ) -> Path:
-        """Record an execution timeout, syntax error, or ambiguous result anomaly."""
-        run_dir = self.base_dir / run_id
+        """Record an execution timeout, syntax error, or ambiguous result anomaly non-destructively.
+
+        Preserves existing data and raises clear errors if the log is corrupted.
+
+        Args:
+            run_id: Target experiment run ID.
+            anomaly: Anomaly payload to append.
+
+        Returns:
+            Path to eval_anomalies.json.
+
+        Raises:
+            ValueError: If eval_anomalies.json exists but is malformed JSON or has wrong structure.
+        """
+        run_dir = self._resolve_run_dir(run_id)
         if not run_dir.exists():
             raise FileNotFoundError(f"Run directory not found: {run_dir}")
 
         anomalies_file = run_dir / "eval_anomalies.json"
         existing: list[dict[str, Any]] = []
-        if anomalies_file.exists():
-            with open(anomalies_file, encoding="utf-8") as f:
-                try:
-                    existing = json.load(f)
-                except Exception:
-                    existing = []
 
-        existing.append(anomaly)
+        if anomalies_file.exists():
+            try:
+                with open(anomalies_file, encoding="utf-8") as f:
+                    data = json.load(f)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"Corrupted anomaly log at '{anomalies_file}': failed to parse JSON. "
+                    f"Original contents preserved; cannot append anomaly."
+                ) from exc
+
+            if not isinstance(data, list):
+                raise ValueError(
+                    f"Invalid anomaly log structure at '{anomalies_file}': expected top-level list, "
+                    f"got {type(data).__name__}. Original contents preserved."
+                )
+            existing = data
+
+        existing.append(dict(anomaly))
         with open(anomalies_file, "w", encoding="utf-8") as f:
             json.dump(existing, f, indent=2, sort_keys=True)
 
@@ -153,8 +243,16 @@ class ExperimentTracker:
         run_id: str,
         metrics: EvaluationMetrics | dict[str, Any],
     ) -> Path:
-        """Persist evaluation metrics for a run."""
-        run_dir = self.base_dir / run_id
+        """Persist evaluation metrics for a run.
+
+        Args:
+            run_id: Target experiment run ID.
+            metrics: EvaluationMetrics instance or dict.
+
+        Returns:
+            Path to metrics.json.
+        """
+        run_dir = self._resolve_run_dir(run_id)
         if not run_dir.exists():
             raise FileNotFoundError(f"Run directory not found: {run_dir}")
 
@@ -171,13 +269,23 @@ class ExperimentTracker:
         return metrics_file
 
     def write_manifest(self, run_id: str) -> Path:
-        """Compute SHA-256 hashes of all run artifacts and persist manifest.json."""
-        run_dir = self.base_dir / run_id
+        """Compute SHA-256 hashes of all run artifacts and persist manifest.json.
+
+        Manifest self-excludes itself from hashing to avoid circularity.
+
+        Args:
+            run_id: Target experiment run ID.
+
+        Returns:
+            Path to manifest.json.
+        """
+        run_dir = self._resolve_run_dir(run_id)
         if not run_dir.exists():
             raise FileNotFoundError(f"Run directory not found: {run_dir}")
 
         manifest: dict[str, str] = {}
         for file_path in sorted(run_dir.rglob("*")):
+            # Self-exclusion: manifest.json is explicitly excluded from the manifest itself
             if file_path.is_file() and file_path.name != "manifest.json":
                 rel_path = file_path.relative_to(run_dir).as_posix()
                 hasher = hashlib.sha256()
@@ -192,55 +300,151 @@ class ExperimentTracker:
 
         return manifest_file
 
-    def verify_run(self, run_id: str) -> dict[str, Any]:
-        """Verify the structural integrity, completeness, and hash provenance of a run."""
-        run_dir = self.base_dir / run_id
+    def verify_run(self, run_id: str, strict: bool = True) -> dict[str, Any]:
+        """Verify the structural integrity, completeness, and hash provenance of a run.
+
+        Note:
+            SHA-256 verification establishes file integrity relative to recorded checksums;
+            it does not certify methodological validity or scientific correctness.
+
+        Args:
+            run_id: Target experiment run ID.
+            strict: If True, requires manifest.json to declare run verified.
+
+        Returns:
+            Dict containing verification status and detailed error diagnostics.
+        """
+        try:
+            run_dir = self._resolve_run_dir(run_id)
+        except ValueError as exc:
+            return {
+                "verified": False,
+                "run_id": run_id,
+                "status": "error",
+                "errors": [str(exc)],
+            }
+
         if not run_dir.exists():
             return {
                 "verified": False,
                 "run_id": run_id,
-                "error": f"Run directory does not exist: {run_dir}",
+                "status": "missing_directory",
+                "errors": [f"Run directory does not exist: {run_dir}"],
             }
 
         missing_required = []
+        errors = []
+        hash_mismatches = []
+        untracked_files = []
+
+        # 1. Essential file presence
         for req in ["run_metadata.json", "config.yaml"]:
             if not (run_dir / req).exists():
                 missing_required.append(req)
 
-        metadata = self.get_run(run_id)
+        # 2. Metadata validation
+        metadata = None
+        if (run_dir / "run_metadata.json").exists():
+            try:
+                with open(run_dir / "run_metadata.json", encoding="utf-8") as f:
+                    meta_raw = json.load(f)
+                metadata = RunMetadata(**meta_raw)
+            except (json.JSONDecodeError, ValidationError) as exc:
+                errors.append(f"Invalid run_metadata.json: {exc}")
+
+        # Check completed run requirements
         if metadata and metadata.status == "completed" and not (run_dir / "metrics.json").exists():
             missing_required.append("metrics.json")
 
-        hash_mismatches = []
+        # 3. YAML config validity
+        if (run_dir / "config.yaml").exists():
+            try:
+                with open(run_dir / "config.yaml", encoding="utf-8") as f:
+                    yaml.safe_load(f)
+            except Exception as exc:
+                errors.append(f"Invalid config.yaml: {exc}")
+
+        # 4. JSONL generation records validity
+        if (run_dir / "generations.jsonl").exists():
+            try:
+                with open(run_dir / "generations.jsonl", encoding="utf-8") as f:
+                    for line_idx, line in enumerate(f, start=1):
+                        if line.strip():
+                            try:
+                                json.loads(line)
+                            except json.JSONDecodeError as exc:
+                                errors.append(
+                                    f"Corrupted generations.jsonl at line {line_idx}: {exc}"
+                                )
+            except Exception as exc:
+                errors.append(f"Failed to read generations.jsonl: {exc}")
+
+        # 5. Manifest presence and integrity
         manifest_file = run_dir / "manifest.json"
-        if manifest_file.exists():
-            with open(manifest_file, encoding="utf-8") as f:
-                expected_hashes = json.load(f)
+        if not manifest_file.exists():
+            if strict:
+                missing_required.append("manifest.json")
+        else:
+            try:
+                with open(manifest_file, encoding="utf-8") as f:
+                    expected_hashes = json.load(f)
 
-            for rel_path, expected_hash in expected_hashes.items():
-                target = run_dir / rel_path
-                if not target.exists():
-                    missing_required.append(rel_path)
-                    continue
-                hasher = hashlib.sha256()
-                with open(target, "rb") as f:
-                    for chunk in iter(lambda: f.read(65536), b""):
-                        hasher.update(chunk)
-                if hasher.hexdigest() != expected_hash:
-                    hash_mismatches.append(rel_path)
+                if not isinstance(expected_hashes, dict):
+                    errors.append("Malformed manifest.json: root structure must be a JSON object")
+                else:
+                    # Check that files in manifest match recorded hashes
+                    for rel_path, expected_hash in expected_hashes.items():
+                        target = run_dir / rel_path
+                        if not target.exists():
+                            missing_required.append(rel_path)
+                            continue
+                        hasher = hashlib.sha256()
+                        with open(target, "rb") as f:
+                            for chunk in iter(lambda: f.read(65536), b""):
+                                hasher.update(chunk)
+                        if hasher.hexdigest() != expected_hash:
+                            hash_mismatches.append(rel_path)
 
-        verified = (len(missing_required) == 0) and (len(hash_mismatches) == 0)
+                    # Check for unexpected/untracked files in run_dir
+                    for file_path in run_dir.rglob("*"):
+                        if file_path.is_file() and file_path.name != "manifest.json":
+                            rel_posix = file_path.relative_to(run_dir).as_posix()
+                            if rel_posix not in expected_hashes:
+                                untracked_files.append(rel_posix)
+
+            except json.JSONDecodeError as exc:
+                errors.append(f"Malformed manifest.json: {exc}")
+
+        is_verified = (
+            len(missing_required) == 0
+            and len(hash_mismatches) == 0
+            and len(errors) == 0
+            and len(untracked_files) == 0
+        )
+
         return {
-            "verified": verified,
+            "verified": is_verified,
             "run_id": run_id,
             "status": metadata.status if metadata else "unknown",
+            "missing_manifest": not manifest_file.exists(),
             "missing_files": sorted(list(set(missing_required))),
-            "hash_mismatches": hash_mismatches,
+            "hash_mismatches": sorted(hash_mismatches),
+            "untracked_files": sorted(untracked_files),
+            "errors": errors,
+            "verification_level": "strict" if strict else "lenient",
         }
 
     def finish_run(self, run_id: str, status: str = "completed") -> RunMetadata:
-        """Mark a run as completed or failed, generate manifest, and update metadata."""
-        run_dir = self.base_dir / run_id
+        """Mark a run as completed or failed, update metadata, and generate manifest.
+
+        Args:
+            run_id: Target experiment run ID.
+            status: Final run status ('completed', 'failed', 'aborted').
+
+        Returns:
+            Updated RunMetadata.
+        """
+        run_dir = self._resolve_run_dir(run_id)
         metadata = self.get_run(run_id)
         if metadata is None:
             raise FileNotFoundError(f"Run not found: {run_id}")
@@ -248,13 +452,25 @@ class ExperimentTracker:
         updated_dict = metadata.model_dump()
         updated_dict["status"] = status
         updated = RunMetadata(**updated_dict)
+
+        # 1. Update and persist final metadata
         self._save_metadata(run_dir, updated)
+
+        # 2. Compute and write cryptographic manifest covering the final metadata
         self.write_manifest(run_id)
         return updated
 
     def get_run(self, run_id: str) -> RunMetadata | None:
-        """Read and validate RunMetadata for an existing run."""
-        meta_file = self.base_dir / run_id / "run_metadata.json"
+        """Read and validate RunMetadata for an existing run.
+
+        Args:
+            run_id: Target experiment run ID.
+
+        Returns:
+            RunMetadata if run exists and is valid, None otherwise.
+        """
+        run_dir = self._resolve_run_dir(run_id)
+        meta_file = run_dir / "run_metadata.json"
         if not meta_file.exists():
             return None
 

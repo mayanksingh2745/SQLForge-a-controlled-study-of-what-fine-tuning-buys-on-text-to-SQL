@@ -143,3 +143,121 @@ def test_tracker_generation_and_anomaly_logging(temp_artifact_dir: Path) -> None
     )
     assert anomaly_file.is_file()
     assert "E09" in anomaly_file.read_text(encoding="utf-8")
+
+    # Repeated append to verify non-destructive appending
+    tracker.log_anomaly(
+        meta.run_id,
+        {"example_id": "spider_03", "error_code": "E08", "reason": "Syntax error"},
+    )
+    import json
+
+    anomalies = json.loads(anomaly_file.read_text(encoding="utf-8"))
+    assert len(anomalies) == 2
+    assert anomalies[0]["example_id"] == "spider_02"
+    assert anomalies[1]["example_id"] == "spider_03"
+
+
+def test_tracker_invalid_run_ids_rejected(temp_artifact_dir: Path) -> None:
+    """Verify that invalid run IDs are rejected before any filesystem modification."""
+    tracker = ExperimentTracker(base_artifact_dir=temp_artifact_dir)
+
+    invalid_ids = [
+        "../traversal",
+        "..\\windows_traversal",
+        "/absolute/path",
+        "nested/path",
+        "has spaces",
+        "invalid$char",
+        "",
+        "a" * 129,
+    ]
+
+    for bad_id in invalid_ids:
+        with pytest.raises(ValueError):
+            tracker.init_run(experiment_name="test", config={}, run_id=bad_id)
+
+
+def test_tracker_empty_directory_collision(temp_artifact_dir: Path) -> None:
+    """Verify that ExperimentTracker rejects collisions even if the target directory is empty."""
+    tracker = ExperimentTracker(base_artifact_dir=temp_artifact_dir)
+    target_id = "pre_existing_empty_dir"
+    empty_dir = temp_artifact_dir / target_id
+    empty_dir.mkdir(parents=True, exist_ok=False)
+
+    with pytest.raises(FileExistsError, match="Collision detected"):
+        tracker.init_run(
+            experiment_name="test",
+            config={},
+            run_id=target_id,
+        )
+
+
+def test_tracker_corrupted_anomaly_log_preserves_content(temp_artifact_dir: Path) -> None:
+    """Verify that corrupted anomaly logs raise ValueError and preserve data instead of overwriting."""
+    tracker = ExperimentTracker(base_artifact_dir=temp_artifact_dir)
+    meta = tracker.init_run(experiment_name="anomaly_corruption_test", config={})
+    anomaly_path = temp_artifact_dir / meta.run_id / "eval_anomalies.json"
+
+    # Write corrupted JSON
+    corrupted_content = "{ malformed json: not valid ... "
+    anomaly_path.write_text(corrupted_content, encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"Corrupted anomaly log"):
+        tracker.log_anomaly(meta.run_id, {"example_id": "exp1", "error": "test"})
+
+    # Content must NOT have been overwritten or truncated
+    assert anomaly_path.read_text(encoding="utf-8") == corrupted_content
+
+    # Write valid JSON but wrong top-level structure (dict instead of list)
+    dict_content = '{"some_key": "some_value"}'
+    anomaly_path.write_text(dict_content, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="expected top-level list"):
+        tracker.log_anomaly(meta.run_id, {"example_id": "exp1", "error": "test"})
+
+    assert anomaly_path.read_text(encoding="utf-8") == dict_content
+
+
+def test_tracker_verify_run_strict_vs_lenient(temp_artifact_dir: Path) -> None:
+    """Verify strict manifest enforcement and detection of untracked or corrupted records."""
+    tracker = ExperimentTracker(base_artifact_dir=temp_artifact_dir)
+    meta = tracker.init_run(experiment_name="strict_test", config={"seed": 42})
+
+    # Unfinished run has no manifest.json
+    # Strict verification should fail
+    strict_res = tracker.verify_run(meta.run_id, strict=True)
+    assert strict_res["verified"] is False
+    assert strict_res["missing_manifest"] is True
+
+    # Lenient verification allows missing manifest as long as metadata is valid
+    lenient_res = tracker.verify_run(meta.run_id, strict=False)
+    assert lenient_res["verified"] is True
+    assert lenient_res["missing_manifest"] is True
+
+    # Log metrics before completing, as completed runs require metrics.json
+    tracker.log_metrics(meta.run_id, {"total_examples": 1, "exact_match_accuracy": 1.0})
+
+    # Finish run cleanly
+    tracker.finish_run(meta.run_id, status="completed")
+
+    clean_res = tracker.verify_run(meta.run_id, strict=True)
+    assert clean_res["verified"] is True
+    assert clean_res["missing_manifest"] is False
+    assert len(clean_res["untracked_files"]) == 0
+
+    # Add an untracked file to run dir
+    run_dir = temp_artifact_dir / meta.run_id
+    (run_dir / "untracked_rogue_file.txt").write_text("rogue", encoding="utf-8")
+
+    untracked_res = tracker.verify_run(meta.run_id, strict=True)
+    assert untracked_res["verified"] is False
+    assert "untracked_rogue_file.txt" in untracked_res["untracked_files"]
+
+    # Corrupt a record file (e.g. generations.jsonl)
+    gen_file = run_dir / "generations.jsonl"
+    gen_file.write_text("not a valid json line\n", encoding="utf-8")
+
+    # In strict mode, corrupted records must be detected
+    corrupt_res = tracker.verify_run(meta.run_id, strict=True)
+    assert corrupt_res["verified"] is False
+    assert any("generations.jsonl" in err for err in corrupt_res["errors"])

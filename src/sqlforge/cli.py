@@ -187,5 +187,118 @@ def experiment_init_cmd(name: str, seed: int, artifact_dir: Path) -> None:
     console.print(f"  Config Hash: {metadata.config_hash}")
 
 
+@main.group("pipeline")
+def pipeline_group() -> None:
+    """Execute end-to-end experiment pipelines and test harnesses."""
+    pass
+
+
+@pipeline_group.command("mock")
+@click.option(
+    "--config",
+    "config_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Path to YAML experiment config file (defaults to configs/mock_pipeline.yaml).",
+)
+@click.option(
+    "--fixtures",
+    "fixtures_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Path to fixture dataset JSON (defaults to tests/fixtures/dataset/mock_spider.json).",
+)
+@click.option(
+    "--artifact-dir",
+    default="artifacts/runs",
+    type=click.Path(file_okay=False, path_type=Path),
+    help="Directory where experiment run artifacts are stored.",
+)
+@click.option(
+    "--run-id",
+    help="Optional explicit run ID.",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Validate configuration and fixtures without creating an experiment run.",
+)
+@click.option(
+    "--fail-mode",
+    is_flag=True,
+    help="Simulate component failure to verify failure state preservation.",
+)
+def pipeline_mock_cmd(
+    config_path: Path | None,
+    fixtures_path: Path | None,
+    artifact_dir: Path,
+    run_id: str | None,
+    dry_run: bool,
+    fail_mode: bool,
+) -> None:
+    """Run the deterministic end-to-end mock pipeline vertical slice.
+
+    This command exercises configuration validation, prompt assembly, mock inference,
+    mock evaluation, artifact logging, and cryptographic manifest verification.
+    Operates 100% offline without downloading models or accessing real benchmark datasets.
+    """
+    from sqlforge.pipeline.harness import MockPipelineHarness
+
+    console.print("\n[bold cyan]SQLForge Mock Pipeline Harness[/bold cyan]")
+    console.print(
+        "[yellow]DISCLAIMER: Offline synthetic mock pipeline demonstration only.\n"
+        "Outputs do NOT represent real model inferences or benchmark accuracy claims.[/yellow]\n"
+    )
+
+    tracker = ExperimentTracker(base_artifact_dir=artifact_dir)
+    harness = MockPipelineHarness(tracker=tracker)
+
+    try:
+        result = harness.run(
+            config=config_path,
+            fixtures_path=fixtures_path,
+            run_id=run_id,
+            dry_run=dry_run,
+            fail_mode=fail_mode,
+        )
+    except Exception as exc:
+        console.print(f"[bold red][FAILED] Pipeline setup error: {exc}[/bold red]")
+        raise click.Abort() from exc
+
+    table = Table(title="Pipeline Execution Summary", show_header=True, header_style="bold magenta")
+    table.add_column("Property", style="dim", width=24)
+    table.add_column("Value")
+
+    table.add_row("Run ID", result.run_id)
+    table.add_row(
+        "Status",
+        f"[bold green]{result.status.upper()}[/bold green]"
+        if result.status == "completed"
+        else f"[bold yellow]{result.status.upper()}[/bold yellow]",
+    )
+    table.add_row("Total Examples", str(result.total_examples))
+    table.add_row("Artifact Directory", result.artifact_dir or "(none - dry run)")
+
+    verified_badge = "[green]PASSED (Strict)[/green]" if result.verified else "[red]FAILED[/red]"
+    table.add_row("Manifest Verification", verified_badge)
+    table.add_row("Anomalies Recorded", str(result.anomalies_count))
+
+    if result.metrics:
+        em_acc = result.metrics.get("exact_match_accuracy", "N/A")
+        exec_acc = result.metrics.get("execution_accuracy", "N/A")
+        valid_rate = result.metrics.get("valid_sql_rate", "N/A")
+        table.add_row("Mock EM Accuracy", f"{em_acc} (synthetic)")
+        table.add_row("Mock Exec Accuracy", f"{exec_acc} (synthetic)")
+        table.add_row("Mock Valid SQL Rate", f"{valid_rate} (synthetic)")
+
+    console.print(table)
+
+    if result.status == "failed" or not result.verified:
+        console.print("[bold red]Pipeline completed with errors or failed verification.[/bold red]")
+        raise click.Abort()
+
+    console.print(
+        "\n[bold green]Pipeline execution completed and verified successfully.[/bold green]\n"
+    )
+
+
 if __name__ == "__main__":
     main()

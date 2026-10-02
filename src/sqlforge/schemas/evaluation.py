@@ -1,6 +1,6 @@
-"""Data contracts for generation logs, evaluation metrics, and statistical benchmarks."""
+from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class GenerationResult(BaseModel):
@@ -29,44 +29,68 @@ class ConfidenceInterval(BaseModel):
         default=0.95, ge=0.5, le=1.0, description="Confidence level (e.g. 0.95 for 95%)"
     )
 
+    @model_validator(mode="after")
+    def validate_bounds(self) -> Self:
+        """Ensure lower bound does not exceed upper bound."""
+        if self.lower > self.upper:
+            raise ValueError(
+                f"Confidence interval lower bound ({self.lower}) cannot exceed upper bound ({self.upper})"
+            )
+        return self
+
 
 class EvaluationMetrics(BaseModel):
-    """Aggregated evaluation metrics for an experiment evaluation run."""
+    """Aggregated evaluation metrics for an experiment evaluation run.
+
+    Note on Aliases & Uncomputed Metrics:
+        - `execution_success_rate` and `valid_sql_rate` are documented aliases measuring the
+          proportion of candidate queries that execute on SQLite without database runtime error.
+          If only one is provided, the other is automatically populated with the same value.
+          If both are provided, they must agree within floating-point tolerance (1e-5).
+        - Metrics that have not been computed default to `None` rather than `0.0` or `1.0`
+          to prevent unmeasured attributes from appearing as real measured values.
+    """
 
     model_config = ConfigDict(frozen=True)
 
     total_examples: int = Field(
         ..., ge=0, description="Total number of evaluated examples (denominator)"
     )
-    valid_sql_rate: float = Field(
-        ...,
-        ge=0.0,
-        le=1.0,
-        description="Proportion of queries that execute without database error (alias for execution_success_rate)",
-    )
-    syntax_valid_rate: float = Field(
-        default=1.0,
-        ge=0.0,
-        le=1.0,
-        description="Proportion of queries that are syntactically valid SQL (AST parses)",
-    )
-    execution_success_rate: float = Field(
-        default=0.0,
-        ge=0.0,
-        le=1.0,
-        description="Proportion of queries that execute without runtime error or timeout",
+    execution_accuracy: float = Field(
+        ..., ge=0.0, le=1.0, description="Execution equivalence with gold SQL result set"
     )
     exact_match_accuracy: float = Field(
         ..., ge=0.0, le=1.0, description="Exact AST/string match with gold SQL"
     )
-    execution_accuracy: float = Field(
-        ..., ge=0.0, le=1.0, description="Execution equivalence with gold SQL result set"
+    execution_success_rate: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Proportion of queries that execute without runtime error or timeout",
     )
-    syntax_error_rate: float = Field(
-        default=0.0, ge=0.0, le=1.0, description="Proportion failing with SQL syntax errors"
+    valid_sql_rate: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Proportion of queries that execute without database error (alias for execution_success_rate)",
     )
-    timeout_rate: float = Field(
-        default=0.0, ge=0.0, le=1.0, description="Proportion exceeding query timeout"
+    syntax_valid_rate: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Proportion of queries that are syntactically valid SQL (None if uncomputed)",
+    )
+    syntax_error_rate: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Proportion failing with SQL syntax errors (None if uncomputed)",
+    )
+    timeout_rate: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Proportion exceeding query timeout (None if uncomputed)",
     )
     empty_result_count: int = Field(
         default=0,
@@ -97,3 +121,22 @@ class EvaluationMetrics(BaseModel):
         default_factory=dict,
         description="Execution accuracy partitioned by query difficulty (easy, medium, hard, extra)",
     )
+
+    @model_validator(mode="after")
+    def reconcile_execution_aliases(self) -> Self:
+        """Synchronize execution_success_rate and valid_sql_rate aliases."""
+        esr = self.execution_success_rate
+        vsr = self.valid_sql_rate
+
+        if esr is not None and vsr is not None:
+            if abs(esr - vsr) > 1e-5:
+                raise ValueError(
+                    f"Conflicting metrics: 'execution_success_rate' ({esr}) and 'valid_sql_rate' ({vsr}) "
+                    f"are documented aliases and must match."
+                )
+        elif esr is not None and vsr is None:
+            object.__setattr__(self, "valid_sql_rate", esr)
+        elif vsr is not None and esr is None:
+            object.__setattr__(self, "execution_success_rate", vsr)
+
+        return self

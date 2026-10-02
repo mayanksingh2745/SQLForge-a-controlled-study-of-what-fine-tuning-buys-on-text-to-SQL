@@ -1,0 +1,20 @@
+# Configuration for offline mock pipeline harness verification
+# Validated against sqlforge.schemas.experiments.ExperimentConfig
+
+experiment_id: "mock_pipeline_run"
+description: "Deterministic offline mock pipeline vertical slice verification"
+seed: 42
+model_id: "mock-pipeline-model-v0"
+paradigm: "zero-shot"
+eval_datasets:
+  - "mock_spider:fixtures"
+prompt:
+  template_name: "default_text2sql"
+  schema_format: "ddl"
+  k_shots: 0
+execution:
+  timeout_seconds: 5.0
+  max_memory_mb: 512
+  single_statement_only: true
+  enforce_read_only: true
+output_dir: "artifacts/runs"

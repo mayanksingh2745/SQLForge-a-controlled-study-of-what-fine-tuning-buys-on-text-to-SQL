@@ -1,0 +1,42 @@
+[
+  {
+    "example_id": "mock_spider_001",
+    "question": "What is the name and capacity of the stadium with the highest capacity?",
+    "db_id": "stadium",
+    "schema_context": "CREATE TABLE stadium (Stadium_ID int PRIMARY KEY, Location text, Name text, Capacity int, Highest int, Lowest int, Average int);",
+    "gold_sql": "SELECT Name, Capacity FROM stadium ORDER BY Capacity DESC LIMIT 1;",
+    "difficulty": "easy"
+  },
+  {
+    "example_id": "mock_spider_002",
+    "question": "How many concerts were held in year 2014?",
+    "db_id": "concert_singer",
+    "schema_context": "CREATE TABLE concert (concert_ID int PRIMARY KEY, concert_Name text, Theme text, Stadium_ID text, Year text);",
+    "gold_sql": "SELECT count(*) FROM concert WHERE Year = '2014';",
+    "difficulty": "easy"
+  },
+  {
+    "example_id": "mock_spider_003",
+    "question": "List singer names and song titles for all singers who have songs with sales above 1000.",
+    "db_id": "concert_singer",
+    "schema_context": "CREATE TABLE singer (Singer_ID int PRIMARY KEY, Name text, Country text, Song_Name text, Song_release_year text, Is_male bool);\nCREATE TABLE song (Song_ID int PRIMARY KEY, Title text, Singer_ID int, Sales int);",
+    "gold_sql": "SELECT T1.Name, T2.Title FROM singer AS T1 JOIN song AS T2 ON T1.Singer_ID = T2.Singer_ID WHERE T2.Sales > 1000;",
+    "difficulty": "medium"
+  },
+  {
+    "example_id": "mock_spider_004_malformed",
+    "question": "Find the average capacity of all stadiums located in France.",
+    "db_id": "stadium",
+    "schema_context": "CREATE TABLE stadium (Stadium_ID int PRIMARY KEY, Location text, Name text, Capacity int);",
+    "gold_sql": "SELECT avg(Capacity) FROM stadium WHERE Location = 'France';",
+    "difficulty": "medium"
+  },
+  {
+    "example_id": "mock_spider_005_timeout",
+    "question": "Find all concerts and stadiums joined across complex subqueries.",
+    "db_id": "concert_singer",
+    "schema_context": "CREATE TABLE concert (concert_ID int, Stadium_ID int);\nCREATE TABLE stadium (Stadium_ID int, Name text);",
+    "gold_sql": "SELECT T1.concert_ID, T2.Name FROM concert AS T1 JOIN stadium AS T2 ON T1.Stadium_ID = T2.Stadium_ID;",
+    "difficulty": "hard"
+  }
+]
