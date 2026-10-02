@@ -83,15 +83,21 @@ make all
 
 ---
 
-## 4. Branching and Commit Guidelines
+## 4. Branching and Pull Request Workflow
 
-* Create feature branches off `main`: `feature/your-feature-name` or `experiment/exp-id-topic`.
-* Use Conventional Commits formatting:
-  * `feat: add schema serializer for BIRD format`
-  * `fix: handle NULL column values in execution comparator`
-  * `docs: update research plan with sample size rationale`
-  * `refactor: isolate database adapters from query generator`
-  * `test: add unit tests for bootstrap confidence intervals`
+All contributors and automated agents must adhere to the **Mandatory 12-Step GitHub Workflow** detailed in [docs/github_workflow.md](docs/github_workflow.md):
+
+1. **Never develop directly on `main`:** Always create a descriptive branch off an up-to-date `main`:
+   - Features & Steps: `feat/step-<N>-<topic>`
+   - Experiments: `exp/<exp-id>-<topic>`
+   - Bug fixes: `fix/<issue-id>-<topic>`
+   - Chores: `chore/<topic>`
+2. **Conventional Commits:**
+   - `feat: add schema serializer for BIRD format`
+   - `fix: handle NULL column values in execution comparator`
+   - `docs: update research plan with sample size rationale`
+   - `test: add unit tests for bootstrap confidence intervals`
+3. **Pull Request Standards:** Open PRs using `.github/pull_request_template.md`. Ensure all CI checks pass, review diff and security boundaries, and merge via Squash & Merge only after validation.
 
 ---
 
