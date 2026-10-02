@@ -79,12 +79,20 @@ def test_schemas_support_research_matrix() -> None:
     metrics = EvaluationMetrics(
         total_examples=1000,
         valid_sql_rate=0.95,
+        syntax_valid_rate=0.98,
+        execution_success_rate=0.95,
         exact_match_accuracy=0.60,
         execution_accuracy=0.72,
+        empty_result_count=12,
+        ambiguous_result_count=5,
+        unsupported_comparison_count=0,
         bootstrap_ci_execution_accuracy=ci,
         difficulty_breakdown={"easy": 0.85, "medium": 0.70, "hard": 0.55, "extra": 0.40},
     )
     assert metrics.execution_accuracy == 0.72
+    assert metrics.syntax_valid_rate == 0.98
+    assert metrics.execution_success_rate == 0.95
+    assert metrics.empty_result_count == 12
 
     # ExecutionStatus contains the required runtime statuses
     assert ExecutionStatus.SUCCESS == "success"
@@ -92,8 +100,8 @@ def test_schemas_support_research_matrix() -> None:
     assert ExecutionStatus.SYNTAX_ERROR == "syntax_error"
 
 
-def test_config_experiments_yaml_validity() -> None:
-    """Verify that configs/experiments.yaml parses and aligns with experiment concepts."""
+def test_config_experiments_yaml_contains_all_ten_matrix_experiments() -> None:
+    """Verify that configs/experiments.yaml defines all 10 experiments from the research matrix."""
     config_file = Path("configs/experiments.yaml")
     assert config_file.is_file()
 
@@ -102,7 +110,50 @@ def test_config_experiments_yaml_validity() -> None:
 
     assert "experiments" in data
     exps = data["experiments"]
-    assert "exp01_zeroshot_baselines" in exps
-    assert "exp03_lora_vs_qlora" in exps
-    assert "exp04_lora_rank_sweep" in exps
-    assert "exp05_data_scaling_law" in exps
+
+    expected_exps = [
+        ("exp01_zeroshot_baselines", "EXP-01-ZEROSHOT"),
+        ("exp02_fewshot_retrieval", "EXP-02-FEWSHOT-RETRIEVAL"),
+        ("exp03_lora_vs_qlora", "EXP-03-LORA-VS-QLORA"),
+        ("exp04_lora_rank_sweep", "EXP-04-RANK-SWEEP"),
+        ("exp05_data_scaling_law", "EXP-05-DATA-SCALING"),
+        ("exp06_human_vs_synthetic", "EXP-06-HUMAN-VS-SYNTHETIC"),
+        ("exp07_schema_format", "EXP-07-SCHEMA-FORMAT"),
+        ("exp08_quantization", "EXP-08-QUANTIZATION"),
+        ("exp09_self_consistency", "EXP-09-SELF-CONSISTENCY"),
+        ("exp10_serving_bench", "EXP-10-SERVING-BENCH"),
+    ]
+
+    for key, expected_id in expected_exps:
+        assert key in exps, f"Missing {key} in configs/experiments.yaml"
+        exp_def = exps[key]
+        assert exp_def.get("experiment_id") == expected_id
+        assert "description" in exp_def
+        assert "paradigm" in exp_def
+        assert "primary_metric" in exp_def
+
+
+def test_exp02_fewshot_retrieval_specification() -> None:
+    """Verify that exp02_fewshot_retrieval explicitly defines both BM25 and dense retrieval arms."""
+    config_file = Path("configs/experiments.yaml")
+    with open(config_file, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+
+    exp02 = data["experiments"]["exp02_fewshot_retrieval"]
+    assert "retrievers" in exp02
+    assert "bm25" in exp02["retrievers"]
+    assert "dense_embedding" in exp02["retrievers"]
+    assert exp02.get("dense_embedding_model") == "BAAI/bge-small-en-v1.5"
+    assert exp02.get("prompt_token_budget") == 4096
+
+
+def test_hypotheses_specify_tost_equivalence_margins() -> None:
+    """Verify that hypotheses.md documents explicit TOST equivalence bounds and sample limitations."""
+    hyp_file = Path("docs/research/hypotheses.md")
+    content = hyp_file.read_text(encoding="utf-8")
+
+    assert "Non-Inferiority / Equivalence Bound:" in content
+    assert "Two One-Sided Tests" in content or "TOST" in content
+    assert "Sample Size & Generalization Scope Limitation" in content
+    assert "Nested Subset Protocol" in content
+    assert "Provenance & Anti-Confounding Controls" in content

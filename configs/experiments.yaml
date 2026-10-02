@@ -1,6 +1,8 @@
 # Experiment Matrix for Controlled Study of Fine-Tuning on Text-to-SQL
+# Canonical 10-experiment staged matrix aligned with docs/research/experiment_matrix.md
 experiments:
   exp01_zeroshot_baselines:
+    experiment_id: "EXP-01-ZEROSHOT"
     description: "Zero-shot prompting across base open-weight models and frontier reference"
     paradigm: "zero-shot"
     models:
@@ -12,20 +14,37 @@ experiments:
       - "bird_mini:dev"
       - "held_out_custom:test"
     schema_format: "ddl"
+    primary_metric: "execution_accuracy"
+    secondary_metrics:
+      - "syntax_valid_rate"
+      - "execution_success_rate"
+      - "exact_match_accuracy"
+    seeds: [42]
 
   exp02_fewshot_retrieval:
-    description: "Few-shot in-context learning with BM25 vs dense semantic example retrieval"
+    experiment_id: "EXP-02-FEWSHOT-RETRIEVAL"
+    description: "Few-shot in-context learning comparing BM25 keyword vs dense semantic example retrieval"
     paradigm: "few-shot"
     k_shots: [1, 3, 5]
-    retriever: "bm25"
+    retrievers:
+      - "bm25"
+      - "dense_embedding"
+    dense_embedding_model: "BAAI/bge-small-en-v1.5"
+    prompt_token_budget: 4096
     models:
       - "qwen25_coder_7b"
       - "frontier_api_ref"
     datasets:
       - "spider:dev"
     schema_format: "ddl"
+    primary_metric: "execution_accuracy"
+    secondary_metrics:
+      - "prompt_tokens"
+      - "latency_ms"
+    seeds: [42]
 
   exp03_lora_vs_qlora:
+    experiment_id: "EXP-03-LORA-VS-QLORA"
     description: "Controlled comparison of full precision LoRA (16-bit) vs QLoRA (4-bit NF4)"
     paradigm: "fine-tuning"
     methods:
@@ -36,6 +55,10 @@ experiments:
     eval_datasets:
       - "spider:dev"
       - "held_out_custom:test"
+    primary_metric: "execution_accuracy"
+    secondary_metrics:
+      - "peak_allocated_vram_gb"
+      - "training_hours"
     training:
       epochs: 3
       batch_size: 16
@@ -44,29 +67,130 @@ experiments:
       lr_scheduler: "cosine"
       warmup_ratio: 0.03
       weight_decay: 0.01
+    seeds: [42, 43, 44]
 
   exp04_lora_rank_sweep:
+    experiment_id: "EXP-04-RANK-SWEEP"
     description: "Impact of LoRA intrinsic dimension rank (r=8, 16, 32, 64) on execution accuracy"
     paradigm: "fine-tuning"
     ranks: [8, 16, 32, 64]
     alphas: [16, 32, 64, 128]
+    target_modules: "all-linear"
     base_model: "qwen25_coder_7b"
     train_dataset: "spider:train"
     eval_datasets:
       - "spider:dev"
+    primary_metric: "execution_accuracy"
+    secondary_metrics:
+      - "trainable_parameters"
+      - "adapter_size_mb"
+    seeds: [42]
 
   exp05_data_scaling_law:
-    description: "Data scaling curve: 10%, 25%, 50%, and 100% of Spider training data"
+    experiment_id: "EXP-05-DATA-SCALING"
+    description: "Data scaling curve across nested sample fractions (10%, 25%, 50%, 100%) of Spider training data"
     paradigm: "fine-tuning"
     sample_fractions: [0.10, 0.25, 0.50, 1.00]
+    sample_counts: [700, 1750, 3500, 7000]
+    nested_subsets: true
     seeds: [42, 43, 44]
     base_model: "qwen25_coder_7b"
+    train_dataset: "spider:train"
+    eval_datasets:
+      - "spider:dev"
+    primary_metric: "execution_accuracy"
+    secondary_metrics:
+      - "sample_efficiency_exponent"
 
   exp06_human_vs_synthetic:
-    description: "Controlled study of human-written Spider training data vs execution-filtered synthetic data"
+    experiment_id: "EXP-06-HUMAN-VS-SYNTHETIC"
+    description: "Controlled comparison of human-written training data vs execution-filtered synthetic data"
     paradigm: "fine-tuning"
     data_sources:
       - "human_only"
       - "synthetic_only"
       - "augmented_50_50"
     base_model: "qwen25_coder_7b"
+    train_dataset: "spider:train"
+    eval_datasets:
+      - "spider:dev"
+    quality_filtering:
+      execution_verified: true
+      deduplicated_against_dev: true
+    primary_metric: "execution_accuracy"
+    seeds: [42, 43, 44]
+
+  exp07_schema_format:
+    experiment_id: "EXP-07-SCHEMA-FORMAT"
+    description: "Schema representation ablation: DDL vs compact pipe-delimited vs structured JSON"
+    paradigm: "prompting_ablation"
+    schema_formats:
+      - "ddl"
+      - "compact_pipe"
+      - "json"
+    models:
+      - "qwen25_coder_7b_finetuned"
+      - "frontier_api_ref"
+    eval_datasets:
+      - "spider:dev"
+      - "held_out_custom:test"
+    primary_metric: "execution_accuracy"
+    secondary_metrics:
+      - "prompt_tokens"
+      - "latency_ms"
+    seeds: [42]
+
+  exp08_quantization:
+    experiment_id: "EXP-08-QUANTIZATION"
+    description: "Post-training quantization impact: AWQ (4-bit GPU) vs GGUF Q4_K_M (CPU/edge) vs BF16"
+    paradigm: "quantization"
+    formats:
+      - "bf16_unquantized"
+      - "awq_4bit"
+      - "gguf_q4_k_m"
+    base_model: "qwen25_coder_7b_finetuned"
+    eval_datasets:
+      - "spider:dev"
+    primary_metric: "execution_accuracy"
+    secondary_metrics:
+      - "delta_execution_accuracy"
+      - "model_size_gb"
+      - "latency_p95_ms"
+    seeds: [42]
+
+  exp09_self_consistency:
+    experiment_id: "EXP-09-SELF-CONSISTENCY"
+    description: "Inference decoding strategy: greedy decoding vs execution-based self-consistency (k=5)"
+    paradigm: "decoding"
+    strategies:
+      - name: "greedy"
+        temperature: 0.0
+        k_samples: 1
+      - name: "self_consistency"
+        temperature: 0.7
+        k_samples: 5
+        aggregation: "majority_vote_result_set"
+    base_model: "qwen25_coder_7b_finetuned"
+    eval_datasets:
+      - "spider:dev"
+    primary_metric: "execution_accuracy"
+    secondary_metrics:
+      - "total_generated_tokens"
+    seeds: [42]
+
+  exp10_serving_bench:
+    experiment_id: "EXP-10-SERVING-BENCH"
+    description: "Inference serving engine benchmark: vLLM continuous batching vs Hugging Face sequential pipeline"
+    paradigm: "serving_benchmark"
+    engines:
+      - "vllm"
+      - "huggingface_pipeline"
+    concurrency_levels: [1, 8, 32]
+    workload_size: 200
+    base_model: "qwen25_coder_7b_finetuned"
+    primary_metric: "throughput_tps"
+    secondary_metrics:
+      - "throughput_qps"
+      - "latency_p50_ms"
+      - "latency_p95_ms"
+    seeds: [42]

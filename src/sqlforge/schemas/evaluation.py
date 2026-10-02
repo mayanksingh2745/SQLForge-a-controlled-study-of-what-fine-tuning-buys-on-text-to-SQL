@@ -35,9 +35,26 @@ class EvaluationMetrics(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    total_examples: int = Field(..., ge=0, description="Total number of evaluated examples")
+    total_examples: int = Field(
+        ..., ge=0, description="Total number of evaluated examples (denominator)"
+    )
     valid_sql_rate: float = Field(
-        ..., ge=0.0, le=1.0, description="Proportion of queries that parse and execute"
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Proportion of queries that execute without database error (alias for execution_success_rate)",
+    )
+    syntax_valid_rate: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Proportion of queries that are syntactically valid SQL (AST parses)",
+    )
+    execution_success_rate: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Proportion of queries that execute without runtime error or timeout",
     )
     exact_match_accuracy: float = Field(
         ..., ge=0.0, le=1.0, description="Exact AST/string match with gold SQL"
@@ -50,6 +67,21 @@ class EvaluationMetrics(BaseModel):
     )
     timeout_rate: float = Field(
         default=0.0, ge=0.0, le=1.0, description="Proportion exceeding query timeout"
+    )
+    empty_result_count: int = Field(
+        default=0,
+        ge=0,
+        description="Number of executed queries returning an empty (0-row) result set",
+    )
+    ambiguous_result_count: int = Field(
+        default=0,
+        ge=0,
+        description="Number of queries flagged as ambiguous result matches (e.g. empty set matches)",
+    )
+    unsupported_comparison_count: int = Field(
+        default=0,
+        ge=0,
+        description="Number of queries where result equivalence could not be evaluated",
     )
     latency_p50_ms: float = Field(
         default=0.0, ge=0.0, description="Median generation latency in milliseconds"

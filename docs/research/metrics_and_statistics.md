@@ -4,48 +4,51 @@ This document defines the mathematical formulations, aggregation methodologies, 
 
 ---
 
-## 1. Primary Quality Metric: Execution Accuracy (EX)
+## 1. Metric Hierarchy, Terminology & Explicit Denominators
 
-Execution Accuracy is the primary benchmark of text-to-SQL system quality. It measures whether executing the model-generated SQL query against the target database returns the identical result set as the human-verified Gold SQL query.
+To ensure scientific rigor and avoid conflating syntactic parsing with database executability or semantic correctness, SQLForge strictly distinguishes between five core evaluation metrics.
 
-### Mathematical Formulation
+### Denominator Rule
+**The denominator for all evaluation metrics is strictly $N$, the total number of evaluation instances in the benchmark split.**
+Any model prediction that fails to parse, crashes during execution, exceeds the wall-clock deadline, produces an empty or ambiguous result, or generates an empty prediction receives a score of $0$ in the numerator and remains in the denominator $N$. Resampling for confidence intervals is performed at the individual question/example level $i \in \{1, \dots, N\}$.
 
-$$\text{EX} = \frac{1}{N} \sum_{i=1}^N \mathcal{E}\left( \text{Exec}(Q_{\text{pred}}^{(i)}, \mathcal{D}_i), \text{Exec}(Q_{\text{gold}}^{(i)}, \mathcal{D}_i) \right)$$
-
-Where:
-* $N$: Total number of distinct evaluation examples in the split.
-* $Q_{\text{pred}}^{(i)}$: The predicted candidate SQL query for instance $i$.
-* $Q_{\text{gold}}^{(i)}$: The reference ground-truth SQL query for instance $i$.
-* $\mathcal{D}_i$: The isolated benchmark database instance for example $i$.
-* $\text{Exec}(Q, \mathcal{D})$: The tuple $(S, \mathbf{R})$, where $S \in \{\text{SUCCESS}, \text{ERROR}, \text{TIMEOUT}\}$ and $\mathbf{R}$ is the ordered/unordered tabular result set.
-* $\mathcal{E}(\mathbf{R}_{\text{pred}}, \mathbf{R}_{\text{gold}}) \in \{0, 1\}$: The result set equivalence indicator function.
-
-### Result Equivalence Rules ($\mathcal{E}$)
-Two result sets are evaluated as equivalent ($\mathcal{E} = 1$) if and only if:
-1. **Status Match:** Both executions return `SUCCESS`. If $Q_{\text{pred}}$ fails with an error or timeout, $\mathcal{E} = 0$.
-2. **Cardinality Match:** Both result sets contain the exact same number of rows and columns.
-3. **Multiset Row Equality:** By default, rows are compared as **multisets** (unordered sets with multiplicity), unless the Gold SQL query explicitly includes an `ORDER BY` clause. If `ORDER BY` is present, the row ordering must match strictly.
-4. **Floating-Point Tolerance:** Numerical values are compared with an absolute tolerance of $\epsilon = 10^{-4}$ ($|v_{\text{pred}} - v_{\text{gold}}| \le 10^{-4}$).
-5. **NULL Handling:** `NULL` matches `NULL` strictly; `NULL` does not match an empty string `""` or `0`.
-6. **Column Order Independence:** If column headers match via permutation, column ordering is considered equivalent unless prohibited by the evaluation harness.
-
-### Empty Result Set Protocol
-If both $Q_{\text{pred}}$ and $Q_{\text{gold}}$ return an empty result set ($0$ rows):
-* An empty result match is flagged as **ambiguous**.
-* To prevent degenerate queries (e.g. `SELECT * FROM t WHERE 1=0`) from gaming accuracy, empty matches are credited *only* if $Q_{\text{pred}}$ correctly references the target tables and attributes required by $Q_{\text{gold}}$.
+| Metric Name | Symbol | Mathematical Formulation | Definition & Measurement Scope |
+| :--- | :---: | :--- | :--- |
+| **Syntax Validity Rate** | $\text{SVR}$ | $\frac{1}{N} \sum_{i=1}^N \mathbb{I}(\text{AST\_Parse}(Q_{\text{pred}}^{(i)}) = \text{SUCCESS})$ | Proportion of candidate queries that are syntactically valid SQL (parseable into an AST), regardless of whether referenced tables/columns exist in the database. |
+| **Execution Success Rate** | $\text{ESR}$ | $\frac{1}{N} \sum_{i=1}^N \mathbb{I}(\text{Status}(Q_{\text{pred}}^{(i)}, \mathcal{D}_i) = \text{SUCCESS})$ | Proportion of candidate queries that execute against the target SQLite database without any runtime error, syntax error, or timeout. |
+| **Valid-SQL Rate** | $\text{VSR}$ | $\text{VSR} \equiv \text{ESR}$ | Historical benchmark alias for Execution Success Rate (ESR). Measures database executability, not merely syntactic validity. |
+| **Exact Match Accuracy** | $\text{EM}$ | $\frac{1}{N} \sum_{i=1}^N \mathbb{I}(\text{Norm\_AST}(Q_{\text{pred}}^{(i)}) \equiv \text{Norm\_AST}(Q_{\text{gold}}^{(i)}))$ | Strict syntactic equivalence between normalized ASTs (case, whitespace, and alias invariant). Tracked for continuity but secondary to execution. |
+| **Execution Accuracy** | $\text{EX}$ | $\frac{1}{N} \sum_{i=1}^N \mathcal{E}\left( \text{Exec}(Q_{\text{pred}}^{(i)}, \mathcal{D}_i), \text{Exec}(Q_{\text{gold}}^{(i)}, \mathcal{D}_i) \right)$ | **Primary benchmark metric.** Proportion of queries where predicted SQL execution returns the accepted tabular result set under equivalence rules $\mathcal{E}$. |
 
 ---
 
-## 2. Secondary Quality Metrics
+## 2. Primary Quality Metric: Execution Accuracy (EX)
 
-### Valid-SQL Rate (VSR)
-Proportion of queries that parse without syntax errors and execute successfully on SQLite, regardless of result correctness:
-$$\text{VSR} = \frac{1}{N} \sum_{i=1}^N \mathbb{I}\left( \text{Status}(Q_{\text{pred}}^{(i)}) = \text{SUCCESS} \right)$$
+Execution Accuracy measures whether executing the candidate SQL query against the target database returns the identical result set as the human-verified Gold SQL query.
 
-### Exact Match Accuracy (EM)
-Strict syntactic equivalence between normalized SQL query strings or Abstract Syntax Trees (ASTs):
-$$\text{EM} = \frac{1}{N} \sum_{i=1}^N \mathbb{I}\left( \text{AST}(Q_{\text{pred}}^{(i)}) \equiv \text{AST}(Q_{\text{gold}}^{(i)}) \right)$$
-*Note:* EM is tracked for historical benchmark continuity but is strictly secondary to EX, as valid SQL queries can achieve identical results through alternative valid syntactic constructions (e.g. JOIN ordering, subquery vs CTE).
+### Result Equivalence Rules ($\mathcal{E}$)
+Two execution results are evaluated as equivalent ($\mathcal{E} = 1$) if and only if:
+1. **Status Match:** Both executions return `SUCCESS`. If $Q_{\text{pred}}$ fails with syntax error, table not found, divide-by-zero, or timeout, $\mathcal{E} = 0$.
+2. **Cardinality Match:** Both result sets contain the exact same number of rows and columns.
+3. **Column Alignment:** Columns are matched positionally by projection list index ($j \in \{1, \dots, C\}$), following standard Spider/BIRD benchmark conventions.
+4. **Duplicate Rows (Multiset Semantics):** Result sets are compared as **multisets** (bags with element multiplicity). A query returning duplicate rows must match the exact row count and multiplicity of the gold result set.
+5. **Unordered Matching:** Rows are matched independently of row order *unless* the Gold SQL query contains an explicit `ORDER BY` clause.
+6. **ORDER BY Sensitivity:** If the Gold SQL query includes an `ORDER BY` clause, row sequence order is evaluated strictly ($r_k^{\text{pred}} == r_k^{\text{gold}}$ for all $k$).
+7. **Floating-Point Tolerance:** Numerical values are compared with an absolute tolerance of $\epsilon = 10^{-4}$ ($|v_{\text{pred}} - v_{\text{gold}}| \le 10^{-4}$). Integer and real numbers with identical numerical value (e.g. `1` and `1.0`) are evaluated as equal.
+8. **NULL Semantics:** `NULL` matches `NULL` strictly; `NULL` does not match an empty string `""` or numeric `0`.
+9. **Supported Data Types:** INTEGER, REAL, TEXT, BLOB, and NULL are supported.
+
+### Handling Ambiguous & Unsupported Comparisons
+* **Empty Result Set Protocol:** If both $Q_{\text{pred}}$ and $Q_{\text{gold}}$ return an empty result set ($0$ rows), the comparison is flagged as `AMBIGUOUS_EMPTY_SET`. To prevent degenerate queries (e.g. `SELECT * FROM t WHERE 1=0`) from gaming accuracy, empty matches are credited *only* if $Q_{\text{pred}}$ correctly references the target tables and attributes required by $Q_{\text{gold}}$.
+* **Unsupported Comparisons:** If a query invokes unsupported SQLite extensions or unparseable BLOB literals, it is flagged as `UNSUPPORTED_COMPARISON`, assigned $\mathcal{E} = 0$, and logged in `eval_anomalies.json`. Unsupported comparisons are never silently counted as correct.
+
+### Benchmark Compatibility Notice
+> [!NOTE]
+> The SQLForge execution comparator is an internal research harness designed for controlled empirical experiments. It is not currently certified as 100% bitwise equivalent to the official Spider `test-suite-evaluator` (which uses database-specific test-suite augmentation) or the official BIRD benchmark harness. Full benchmark harness calibration and parity verification will be performed and documented during Step 9 and Step 10.
+
+---
+
+## 3. Sub-Category & Generalization Metrics
 
 ### Execution Accuracy by Difficulty Tier
 Accuracy broken down across the 4 canonical complexity tiers defined in Spider:
@@ -54,6 +57,7 @@ $$\text{EX}_d = \frac{\sum_{i \in \mathcal{I}_d} \mathcal{E}_i}{|\mathcal{I}_d|}
 ### Generalization Delta ($\Delta_{\text{OOD}}$)
 The performance drop experienced when moving from in-domain benchmark schemas to the unseen custom held-out schema:
 $$\Delta_{\text{OOD}} = \text{EX}_{\text{spider:dev}} - \text{EX}_{\text{held\_out:test}}$$
+
 
 ---
 

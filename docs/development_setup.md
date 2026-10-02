@@ -128,3 +128,19 @@ make test
 ### Linux/WSL2 Requirement for DeepSpeed & BitsAndBytes
 * While Step 0 development and CPU inference testing work seamlessly on Windows, quantized 4-bit fine-tuning using `bitsandbytes` and distributed multi-GPU training with `deepspeed` or `flash-attn` are natively supported on Linux.
 * If developing on Windows for future model training steps (Steps 5–6), execute the training pipeline inside **WSL2 (Windows Subsystem for Linux)** with the NVIDIA Container Toolkit / CUDA WSL drivers enabled.
+
+---
+
+## 7. Dependency Pinning & Scientific Reproducibility Policy
+
+### Dependency Management & Constraints Strategy
+* `pyproject.toml` specifies semantic minimum version constraints (`>=`) for core libraries (`pydantic>=2.7.0`, `pyyaml>=6.0.0`, `click>=8.1.0`, `rich>=13.0.0`, `numpy>=1.26.0`) to avoid artificial version lock-in across supported Python versions (3.11, 3.12, 3.13) and platforms (Windows, Linux, macOS).
+* For reproducible experiment execution, `ExperimentTracker` captures the full pip environment snapshot and exact package versions in `run_metadata.json` at run initialization.
+* A baseline pinned constraints file for local development is maintained in `requirements-constraints.txt`.
+
+### Determinism & Non-Bitwise GPU Realities
+* **Software-Level Repeatability:** `sqlforge.reproducibility.set_seed(seed, deterministic=True)` coordinates deterministic seeding across Python's `random`, `hashseed`, NumPy, and PyTorch (if available).
+* **Hardware & Kernel Nondeterminism:**
+  > [!WARNING]
+  > Strict bitwise reproducibility across differing GPU architectures (e.g. Ampere vs. Ada Lovelace vs. Hopper), driver revisions, or multi-threaded floating-point reduction kernels (e.g. FlashAttention, cuBLAS atomic operations) is physically not guaranteed by seed setting alone. SQLForge accounts for this by reporting confidence intervals across multiple random seeds ($S \in \{42, 43, 44\}$) rather than asserting unrealistic bitwise identical outputs across disparate machines.
+

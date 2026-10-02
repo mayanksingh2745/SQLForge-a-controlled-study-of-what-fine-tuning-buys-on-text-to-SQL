@@ -6,7 +6,7 @@
 [![Type Checked: mypy](https://img.shields.io/badge/type_checked-mypy-informational.svg)](https://mypy-lang.org/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-An open-source, research-grade empirical framework investigating whether parameter-efficient fine-tuning (LoRA / QLoRA) on small open-weight language models (1.5B–8B parameters) can match or exceed commercial frontier APIs on text-to-SQL execution accuracy while slashing inference latency, VRAM footprint, and operational costs.
+An open-source empirical research study investigating whether parameter-efficient fine-tuning (LoRA / QLoRA) on small open-weight language models (1.5B–8B parameters) can approach or match commercial frontier reference APIs on text-to-SQL execution accuracy while reducing inference latency, VRAM footprint, and operational costs.
 
 ---
 
@@ -16,19 +16,39 @@ Commercial frontier models (e.g., GPT-4o, Claude 3.5 Sonnet) achieve strong zero
 
 **SQLForge** investigates the following core scientific questions:
 
-1. **In-Domain Execution Accuracy:** Can a fine-tuned 7B open-weight model (e.g., Qwen2.5-Coder-7B) achieve parity with zero-shot GPT-4o mini on Spider?
+1. **In-Domain Execution Accuracy:** Can a fine-tuned 7B open-weight model (e.g., Qwen2.5-Coder-7B) demonstrate non-inferior execution accuracy to zero-shot GPT-4o mini on Spider?
 2. **LoRA vs QLoRA Efficiency:** Does 4-bit NormalFloat (NF4) quantization degrade text-to-SQL execution accuracy relative to 16-bit LoRA, and how much training VRAM does it save?
 3. **LoRA Rank Scaling:** Where does execution accuracy saturate as LoRA rank $r$ scales ($r \in \{8, 16, 32, 64\}$)?
-4. **Data Scaling Laws:** How does accuracy scale across sample fractions ($10\%, 25\%, 50\%, 100\%$), and does execution-filtered synthetic training data match human sample efficiency?
+4. **Data Scaling Laws:** How does accuracy scale across nested sample fractions ($10\%, 25\%, 50\%, 100\%$), and does execution-filtered synthetic training data match human sample efficiency?
 5. **Out-of-Domain Generalization:** How sharply does performance drop when evaluating fine-tuned models on a completely unseen, custom database schema?
-6. **Inference Pareto Frontier:** What is the optimal tradeoff between execution accuracy (EX), p95 latency, and tokens per second (TPS)?
+6. **Inference Pareto Frontier:** What is the optimal tradeoff between execution accuracy (EX), p95 latency, and throughput (TPS / QPS)?
 
 ---
 
-## 2. Current Status: Step 0 Foundation Complete
+## 2. Current Implementation Status & Functional Boundaries
 
-> [!NOTE]
-> **Step 0 Implementation Status:** Production-quality repository foundation, typed data contracts, layered YAML configuration, CLI developer tooling, local-first experiment tracking, defensive SQL execution boundaries, and test suites are complete. Model training experiments and dataset ingestion pipelines begin in Step 1.
+The project is currently at the **Pre-Step-2 Structural Integrity Gate** (Steps 0 and 1 completed; Step 2 pipeline harness not yet started). Functionality is strictly categorized as follows:
+
+### Implemented and Tested
+* **Architecture & Packaging:** Clean layout (`src/sqlforge/`, `configs/`, `docs/`, `tests/`), `pyproject.toml` packaging, and 6-job GitHub Actions CI testing Python 3.11, 3.12, 3.13 on Ubuntu and Windows.
+* **Typed Data Contracts:** Pydantic models in `src/sqlforge/schemas/` for datasets, models, training parameters, evaluation metrics (SVR, ESR, EX, EM), execution sandboxes, and run manifests.
+* **Layered YAML Configuration:** Centralized config hierarchy (`configs/defaults`, `datasets`, `models`, `experiments`, `evaluation`) validated via `sqlforge config validate`.
+* **CLI & Developer Tooling:** `sqlforge env` system diagnostics, `sqlforge config validate`, and `sqlforge experiment init`.
+* **Local Experiment Tracking:** `ExperimentTracker` (`src/sqlforge/experiments/tracker.py`) featuring collision-safe directory allocation, frozen config snapshots, runtime environment capture, and SHA-256 cryptographic manifests (`manifest.json`).
+* **Reproducibility Foundation:** Seed management (`set_seed`), platform auditing, and Git working tree dirty-status verification.
+* **Automated Test Suite:** Unit and integration tests passing 100% locally and in CI.
+
+### Specified but Not Yet Implemented
+* **Research Specifications:** Hypotheses with TOST equivalence margins, baseline tiers B0–B3/T1–T3, dataset governance protocols, and 10-experiment staged matrix in [`docs/research/`](docs/research/).
+* **Data Pipelines & Leakage Checks:** Ingestion adapters for Spider and BIRD mini-dev, custom held-out schema builder, and automated $n$-gram/AST overlap checks (scheduled for Step 3).
+* **Prompt Assembly & Retrieval:** DDL/compact schema formatters and BM25/dense training-set retriever (scheduled for Step 4).
+* **Database Execution Engine:** Read-only SQLite connection sandboxing (`mode=ro`), 10.0s query timeout watchdogs, and memory limits (scheduled for Step 9).
+* **Model Training & Evaluation Harness:** LoRA/QLoRA trainer (Step 6) and multiset execution comparator (Step 9/10).
+* **Quantization & Serving Benchmarks:** AWQ/GGUF exports and vLLM high-concurrency benchmarks (Step 11).
+
+### Planned
+* Execution of experiments EXP-01 through EXP-10, empirical scaling law parameterization, error taxonomy failure mode audit, and publication synthesis.
+
 
 ---
 
@@ -176,12 +196,16 @@ pytest -v tests/       # Unit & integration tests
 
 ## 6. Defensive SQL Execution Architecture
 
-Generated SQL is untrusted code. SQLForge enforces strict multi-layer boundaries:
+> [!NOTE]
+> **Design Specification:** The defensive execution boundaries below are codified as policies in [`SECURITY.md`](SECURITY.md), [`ADR-001`](docs/decisions/ADR-001-sqlite-sandboxing.md), and [`configs/evaluation.yaml`](configs/evaluation.yaml). Their software implementation in Python will be developed and tested in **Step 9: Hardened Database Execution Engine & Normalizer**.
+
+Generated SQL is untrusted code. SQLForge establishes strict multi-layer boundaries:
 * **Connection-Level Read-Only Mode:** SQLite connections use `file:...?mode=ro` preventing any schema or row mutations.
 * **Single-Statement Rule:** Rejects multi-statement stacked queries before execution.
 * **Wall-Clock Timeouts:** Enforces a 10.0-second query execution deadline.
 * **Resource Ceiling:** Memory capped at 1024 MB and returned result sets limited to 5000 rows.
 * **Zero Production Access:** Benchmarks execute exclusively against isolated, ephemeral sandbox databases.
+
 
 ---
 
