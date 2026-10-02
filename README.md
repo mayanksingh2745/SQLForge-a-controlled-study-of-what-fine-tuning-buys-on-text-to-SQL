@@ -188,18 +188,18 @@ Generated SQL is untrusted code. SQLForge enforces strict multi-layer boundaries
 ## 7. Research Roadmap
 
 - [x] **Step 0: Project Foundation, Repository & Architecture**
-- [ ] **Step 1: Dataset Ingestion & Schema Extraction (Spider & BIRD)**
-- [ ] **Step 2: Contamination Audit & Held-Out Schema Construction**
-- [ ] **Step 3: Schema Representation & Few-Shot Retrieval Pipelines**
-- [ ] **Step 4: Zero-Shot & Few-Shot Frontier API Baselines**
-- [ ] **Step 5: Supervised Fine-Tuning Setup (LoRA vs QLoRA)**
-- [ ] **Step 6: Hyperparameter Sweeps (Rank, Modules, Learning Rate)**
-- [ ] **Step 7: Hardened Database Execution Engine & Normalizer**
-- [ ] **Step 8: Metric Computation & Statistical Confidence Intervals**
-- [ ] **Step 9: Synthetic Training Data Scaling Experiments**
-- [ ] **Step 10: Model Quantization & Serving Latency Profiling**
-- [ ] **Step 11: Comprehensive Error Taxonomy & Qualitative Analysis**
-- [ ] **Step 12: Final Synthesis, Comparative Paper & Open-Source Release**
+- [x] **Step 1: Research Specification & Experimental Design** ([docs/research/](docs/research/))
+- [ ] **Step 2: Repository Implementation Review & Core Pipeline Harness**
+- [ ] **Step 3: Dataset Ingestion & Contamination Audit (Spider, BIRD, Custom Held-Out)**
+- [ ] **Step 4: Schema Representation & Few-Shot RAG Pipeline**
+- [ ] **Step 5: Frontier API Reference & Zero-Shot Baselines**
+- [ ] **Step 6: Supervised Fine-Tuning Setup (LoRA vs QLoRA)**
+- [ ] **Step 7: LoRA Hyperparameter & Rank Scaling Sweeps**
+- [ ] **Step 8: Training Data Scaling & Synthetic vs. Human Data**
+- [ ] **Step 9: Hardened Database Execution Engine & Normalizer**
+- [ ] **Step 10: Quantitative Evaluation & Statistical Bootstrap CIs**
+- [ ] **Step 11: Quantization & Serving Latency Profiling (vLLM vs HF)**
+- [ ] **Step 12: Error Taxonomy Analysis & Final Synthesis**
 
 ---
 
