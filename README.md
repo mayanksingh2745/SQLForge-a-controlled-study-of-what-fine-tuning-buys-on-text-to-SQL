@@ -27,7 +27,7 @@ Commercial frontier models (e.g., GPT-4o, Claude 3.5 Sonnet) achieve strong zero
 
 ## 2. Current Implementation Status & Functional Boundaries
 
-The project has completed **Step 2: Foundation Hardening and Core Pipeline Harness** (Steps 0, 1, and 2 completed; Step 3 dataset ingestion is next). Functionality is strictly categorized as follows:
+The project has completed **Step 3: Dataset Ingestion & Contamination Audit** (Steps 0, 1, 2, and 3 completed; Step 4 schema representation and few-shot RAG pipeline is next). Functionality is strictly categorized as follows:
 
 ### Implemented and Tested
 * **Architecture & Packaging:** Clean layout (`src/sqlforge/`, `configs/`, `docs/`, `tests/`), `pyproject.toml` packaging, and 6-job GitHub Actions CI testing Python 3.11, 3.12, 3.13 on Ubuntu and Windows.
@@ -41,13 +41,20 @@ The project has completed **Step 2: Foundation Hardening and Core Pipeline Harne
   - Mock evaluator verifying contract serialization without claiming benchmark accuracy (`src/sqlforge/evaluation/mock_eval.py`).
   - End-to-end pipeline harness orchestrator (`src/sqlforge/pipeline/harness.py`).
   - Executable CLI command: `sqlforge pipeline mock` (with `--dry-run`, `--config`, `--fixtures`, `--artifact-dir`, `--fail-mode`).
-* **Developer Tooling & CLI:** `sqlforge env` diagnostics, `sqlforge config validate`, `sqlforge experiment init`, and `sqlforge pipeline mock`.
-* **Reproducibility Foundation:** Seed management (`set_seed`), platform auditing, Git working tree dirty-status verification, and `requirements-constraints.txt`.
-* **Automated Test Suite:** 60 automated unit and integration tests passing 100% locally and in CI.
+* **Dataset Ingestion Adapters & Provenance Tracking:**
+  - Typed provenance contracts (`DatasetProvenance`, `DatasetSplitManifest`, `DatasetManifest`, `ContaminationReport`) recording upstream source, version tag, revision, licensing terms (`CC-BY-SA-4.0`, `CC-BY-NC-SA-4.0`, `Apache-2.0`), normalization version, and SHA-256 file checksums.
+  - Spider 1.0 schema extractor and partition loader (`tables.json`, `train_spider.json`, `dev.json`) validating required fields, foreign key relationships, and foreign database references.
+  - BIRD Mini-Dev ingestion adapter resolving upstream ambiguity between the 500 SELECT-only subset (`mini_dev_500`, pinned canonical) and 780 Mini-Dev V2 release (`mini_dev_780`), preserving evidence, questions, SQL, and CC BY-NC-SA 4.0 license restrictions.
+  - Custom Held-Out Benchmark foundation (`subscription_analytics_db` 6-table relational schema: `customers`, `plans`, `subscriptions`, `invoices`, `transactions`, `support_tickets`) strictly isolated under `DatasetSplit.HELD_OUT` with Apache-2.0 provenance.
+* **Contamination Auditing & Runtime Isolation Guards:**
+  - `ContaminationAuditor` detecting normalized exact question collisions, exact SQL collisions, configurable word $n$-gram Jaccard lexical overlap, schema disjointness violations ($D_{\text{train}} \cap D_{\text{eval}} = \emptyset$), and split leakage without silently altering official benchmark dev/test splits.
+  - `IsolationGuard` asserting that training datasets and retrieval demonstration indexes contain strictly training instances with zero evaluation data or quarantined evaluation schemas.
+* **Developer Tooling & CLI:** `sqlforge env` diagnostics, `sqlforge config validate`, `sqlforge experiment init`, `sqlforge pipeline mock`, `sqlforge data validate`, `sqlforge data audit`, and `sqlforge data manifest`.
+* **Reproducibility Foundation:** Seed management (`set_seed`), platform auditing, Git working tree dirty-status verification, `requirements-constraints.txt`, and 100% offline test fixtures (`tests/fixtures/dataset/`).
+* **Automated Test Suite:** 90 automated unit and integration tests passing 100% locally and in CI across Ubuntu and Windows.
 
 ### Specified but Not Yet Implemented
 * **Research Specifications:** Hypotheses with TOST equivalence margins, baseline tiers B0–B3/T1–T3, dataset governance protocols, and 10-experiment staged matrix in [`docs/research/`](docs/research/).
-* **Data Pipelines & Leakage Checks:** Ingestion adapters for Spider and BIRD mini-dev, custom held-out schema builder, and automated $n$-gram/AST overlap checks (scheduled for Step 3).
 * **Prompt Assembly & Retrieval:** DDL/compact schema formatters and BM25/dense training-set retriever (scheduled for Step 4).
 * **Database Execution Engine:** Read-only SQLite connection sandboxing (`mode=ro`), 10.0s query timeout watchdogs, and memory limits (scheduled for Step 9).
 * **Model Training & Evaluation Harness:** Real LoRA/QLoRA trainer (Step 6) and multiset execution comparator (Step 9/10).
@@ -56,8 +63,8 @@ The project has completed **Step 2: Foundation Hardening and Core Pipeline Harne
 ### Planned
 * Execution of experiments EXP-01 through EXP-10, empirical scaling law parameterization, error taxonomy failure mode audit, and publication synthesis.
 
-
 ---
+
 
 ## 3. Repository Architecture
 
@@ -251,8 +258,8 @@ Generated SQL is untrusted code. SQLForge establishes strict multi-layer boundar
 - [x] **Step 0: Project Foundation, Repository & Architecture**
 - [x] **Step 1: Research Specification & Experimental Design** ([docs/research/](docs/research/))
 - [x] **Step 2: Repository Implementation Review & Core Pipeline Harness**
-- [ ] **Step 3: Dataset Ingestion & Contamination Audit (Spider, BIRD, Custom Held-Out)**
-- [ ] **Step 4: Schema Representation & Few-Shot RAG Pipeline**
+- [x] **Step 3: Dataset Ingestion & Contamination Audit (Spider, BIRD, Custom Held-Out)**
+- [ ] **Step 4: Schema Representation & Few-Shot RAG Pipeline (Next Step)**
 - [ ] **Step 5: Frontier API Reference & Zero-Shot Baselines**
 - [ ] **Step 6: Supervised Fine-Tuning Setup (LoRA vs QLoRA)**
 - [ ] **Step 7: LoRA Hyperparameter & Rank Scaling Sweeps**
