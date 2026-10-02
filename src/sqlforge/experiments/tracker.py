@@ -379,11 +379,7 @@ class ExperimentTracker:
                 errors.append(f"Invalid run_metadata.json: {exc}")
 
         # Check status-specific required files
-        if (
-            metadata
-            and metadata.status == "completed"
-            and not (run_dir / "metrics.json").exists()
-        ):
+        if metadata and metadata.status == "completed" and not (run_dir / "metrics.json").exists():
             missing_required.append("metrics.json")
         # For failed or aborted runs, run_metadata.json and config.yaml are the primary requirements.
 
