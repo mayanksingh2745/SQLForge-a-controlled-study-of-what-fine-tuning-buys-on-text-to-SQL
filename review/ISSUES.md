@@ -174,3 +174,28 @@ Per repository rules: **Structural documentation fixes are strictly classified a
   - Zero external network requests, zero model weights, zero real dataset ingestion, and zero empirical performance claims.
 * **Verification:** 60 automated tests passing across unit and CLI integration suites.
 
+---
+
+### Issue M: Manifest Path Containment & Symlink Traversal Deficiencies
+* **Category:** Foundation Hardening & Security
+* **Status:** **FIXED** (Implementation & Regression Tests)
+* **Locations:**
+  - `src/sqlforge/experiments/tracker.py` (`verify_run`, `write_manifest`)
+  - `tests/unit/test_tracker.py` (`test_tracker_verify_manifest_path_containment_and_traversal`, `test_tracker_verify_manifest_malformed_hashes`, `test_tracker_verify_nested_legitimate_artifacts`)
+* **Problem:** In `verify_run`, manifest artifact path keys were not validated before accessing the filesystem (`target = run_dir / rel_path`), allowing path traversal (`../`), absolute paths, or escaping drive paths to be targeted. Malformed non-hex or invalid SHA-256 strings were not rejected. Symlinks resolving outside the run directory could escape containment.
+* **Remedy:** Added pre-resolution path validation rejecting absolute paths, drive prefixes, and traversal paths (`..` in parts). Added regex verification for 64-hex SHA-256 hashes (`SHA256_HEX_REGEX`). Enforced strict resolution containment (`target.resolve().relative_to(run_dir.resolve())`) and symlink safety in both `verify_run` and `write_manifest`. Supported legitimate nested directories.
+* **Verification:** Verified via `test_tracker_verify_manifest_path_containment_and_traversal`, `test_tracker_verify_manifest_malformed_hashes`, and `test_tracker_verify_nested_legitimate_artifacts`.
+
+---
+
+### Issue N: Incomplete Artifact Contract & Status Lifecycle Verification
+* **Category:** Data Contracts & Verification
+* **Status:** **FIXED** (Implementation & Regression Tests)
+* **Locations:**
+  - `src/sqlforge/experiments/tracker.py` (`verify_run`)
+  - `tests/unit/test_tracker.py` (`test_tracker_verify_artifact_schemas_and_failed_runs`)
+* **Problem:** `verify_run` only verified file existence and checksums for `metrics.json` and `eval_anomalies.json`, but did not validate that `metrics.json` satisfies the Pydantic `EvaluationMetrics` contract or that `eval_anomalies.json` is a valid JSON list of dictionaries. Lifecycle rules for failed runs vs. completed runs were not explicitly differentiated.
+* **Remedy:** Added Pydantic schema validation for `metrics.json` via `EvaluationMetrics` and structure validation for `eval_anomalies.json` (JSON list of dicts). Explicitly defined that completed runs require `metrics.json`, while failed runs do not require `metrics.json` but require valid metadata, config, manifest, and intact anomalies if logged. Documented precisely what verification guarantees vs. what cryptographic hashes do not guarantee.
+* **Verification:** Verified via `test_tracker_verify_artifact_schemas_and_failed_runs`.
+
+

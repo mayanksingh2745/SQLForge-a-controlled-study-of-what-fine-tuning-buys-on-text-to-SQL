@@ -37,3 +37,18 @@ This log documents the independent reviews, structural integrity audits, and gat
   7. *Strict Scope Discipline:* Zero real model downloads, zero frontier API requests, zero real dataset ingestion, and zero empirical claims made. All mock metrics visibly labeled synthetic.
 * **Verdict:** PASS. All 60 automated unit and integration tests passing. Clean linting and type checking.
 
+### Entry 003: Step 2.1 Corrective Review — Manifest Verification & Path Containment Boundaries
+* **Date:** 2026-10-02
+* **Auditor:** Senior ML Research Engineer & Skeptical Reviewer
+* **Base Commit:** `4b9912b` (Merge of Step 2 PR #4)
+* **Branch:** `fix/manifest-verification-boundaries`
+* **Objective:** Corrective hardening of manifest path containment, malformed hash validation, symlink traversal prevention, complete artifact schema verification, and failed-run lifecycle rules.
+* **Key Findings & Verified Remediations:**
+  1. *Manifest Path Traversal & Containment Defense:* `verify_run` now validates every manifest path key before any filesystem resolution, rejecting absolute paths, drive prefixes, `..` traversal paths, and empty keys. Symlinks pointing outside the run directory are strictly rejected as security violations.
+  2. *Cryptographic Hash Validation:* Every manifest hash is validated against `^[a-fA-F0-9]{64}$`, rejecting non-hex strings, numbers, or truncated/padded values.
+  3. *Complete Artifact Contract Verification:* Added explicit Pydantic schema validation for `metrics.json` (`EvaluationMetrics`) and JSON list structure validation for `eval_anomalies.json` during run verification, preventing corrupted or incomplete records from passing.
+  4. *Lifecycle Rules for Completed vs. Failed Runs:* Formalized that completed runs require `metrics.json`, while failed runs do not require `metrics.json` but require valid metadata, config, manifest, and intact anomalies if logged.
+  5. *Documentation Transparency:* Detailed guarantees (structural integrity, bitwise match, schema compliance) vs. non-guarantees (scientific validity, SQL safety, absence of data leakage) documented in docstrings. Updated `step_dependencies.md` to reflect completed Steps 0, 1, and 2.
+* **Verdict:** PASS. All 64 automated unit and integration tests passing. Clean linting and type checking.
+
+
