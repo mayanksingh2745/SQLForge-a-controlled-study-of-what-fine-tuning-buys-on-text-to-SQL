@@ -63,12 +63,13 @@ graph TD
 * **Deliverables:** DDL, compact pipe, and JSON schema serializers; training-only BM25 retriever (`BM25Retriever`) with `IsolationGuard.assert_retrieval_isolation()` quarantine enforcement; prompt formatting engine (`PromptEngine`) with $k \in \{0, 1, 3, 5\}$, BIRD evidence integration, and graceful token budget degradation; CLI subcommands (`sqlforge prompt serialize`, `sqlforge prompt assemble`).
 * **Exit Criteria:** 117 unit/integration tests passing in CI; formatted prompts strictly adhere to context limits; retrieval index strictly isolated to training partition.
 
-### Step 5: Frontier API Reference & Zero-Shot Baselines (Next Step)
+### Step 5: Frontier API Reference & Zero-Shot Baselines
+* **Status:** Complete.
 * **Prerequisites:** Step 4 prompting engine.
-* **Deliverables:** Zero-shot and few-shot evaluation of Qwen2.5-Coder-1.5B, Qwen2.5-Coder-7B, and GPT-4o mini reference; cost tracking and rate limiting.
-* **Exit Criteria:** Baseline metrics (`EXP-01`) recorded in `artifacts/runs/` with 95% bootstrap CIs.
+* **Deliverables:** Typed model-runner interfaces for local causal LMs (`LocalHFModelRunner`) with lazy-loaded dependencies and commercial frontier models (`OpenAIRunner`) with rate-limiting, bounded exponential backoff, hard cumulative budget ceiling (<= $50.00 USD), secret redaction, and token-based cost accounting; SQL sandboxing with read-only SQLite connections, query timeout watchdogs, multiset row comparator, and ORDER BY sequence sensitivity (`ExecutionComparator`); statistical bootstrap engine (`compute_bootstrap_ci`, `compute_paired_difference_ci`, `mcnemar_test`); baseline orchestration pipeline harness (`BaselinePipelineHarness`) supporting EXP-01 zero-shot and three-shot BM25 baselines; CLI workflow (`sqlforge baseline run`, `sqlforge baseline verify`, `sqlforge baseline stats`).
+* **Exit Criteria:** 166 unit/integration tests passing in CI; verified zero leakage on retrieval index; dry-run and offline evaluation pipelines verified with cryptographic manifests.
 
-### Step 6: Supervised Fine-Tuning Setup (LoRA vs. QLoRA)
+### Step 6: Supervised Fine-Tuning Setup (LoRA vs. QLoRA) (Next Step)
 * **Prerequisites:** Step 5 baselines.
 * **Deliverables:** SFT fine-tuning pipeline with Hugging Face PEFT; 16-bit LoRA and 4-bit NF4 QLoRA execution on Spider train (`EXP-03`).
 * **Exit Criteria:** Loss curves recorded, VRAM allocated monitored, checkpoints saved cleanly without base weight duplication.

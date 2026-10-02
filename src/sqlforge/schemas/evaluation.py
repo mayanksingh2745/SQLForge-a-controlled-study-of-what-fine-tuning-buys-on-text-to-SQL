@@ -16,6 +16,12 @@ class GenerationResult(BaseModel):
     finish_reason: str = Field(
         default="stop", description="Generation completion reason (e.g. 'stop', 'length')"
     )
+    cost_usd: float | None = Field(
+        default=None, ge=0.0, description="Estimated API generation cost in USD (if applicable)"
+    )
+    model_id: str | None = Field(
+        default=None, description="Model identifier that produced generation"
+    )
 
 
 class ConfidenceInterval(BaseModel):
@@ -117,10 +123,19 @@ class EvaluationMetrics(BaseModel):
         default=None,
         description="95% bootstrap confidence interval for execution accuracy",
     )
+    error_breakdown: dict[str, int] = Field(
+        default_factory=dict,
+        description="Count of failures partitioned by taxonomy (SYNTAX_ERROR, TIMEOUT, EXECUTION_ERROR, EXECUTION_MISMATCH)",
+    )
     difficulty_breakdown: dict[str, float] = Field(
         default_factory=dict,
         description="Execution accuracy partitioned by query difficulty (easy, medium, hard, extra)",
     )
+
+    @property
+    def confidence_interval(self) -> ConfidenceInterval | None:
+        """Alias property for bootstrap_ci_execution_accuracy."""
+        return self.bootstrap_ci_execution_accuracy
 
     @model_validator(mode="after")
     def reconcile_execution_aliases(self) -> Self:

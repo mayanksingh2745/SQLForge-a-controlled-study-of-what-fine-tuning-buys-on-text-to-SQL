@@ -1,19 +1,35 @@
-"""Model layer: Unified interfaces for local models and frontier API baselines.
+"""Model inference layer for SQLForge.
 
-Planned for future steps:
-- Hugging Face causal LM wrappers (Qwen2.5-Coder, Llama-3.1, DeepSeek-Coder).
-- Frontier API wrappers (OpenAI, Anthropic) with retry and rate-limiting.
-- LoRA/QLoRA adapter loader and weight merger.
+Exports:
+- ModelRunner: Protocol definition for model inference engines.
+- MockModelRunner: Deterministic offline mock runner for software pipeline verification.
+- OpenAIRunner: Frontier API runner for gpt-4o-mini with rate limiting, retries, and budget guards.
+- LocalHFModelRunner: Local Hugging Face causal LM runner with lazy-loaded dependencies.
+- Exceptions: APIBudgetExceededError, APIOptInRequiredError, OpenAIPermanentError, OpenAITransientError, LocalModelDependencyError.
 """
 
-from typing import Protocol
+from sqlforge.models.base import ModelRunner
+from sqlforge.models.local_hf import LocalHFModelRunner, LocalModelDependencyError
+from sqlforge.models.mock import MockModelError, MockModelRunner
+from sqlforge.models.openai_runner import (
+    APIBudgetExceededError,
+    APIOptInRequiredError,
+    OpenAIPermanentError,
+    OpenAIRunner,
+    OpenAIRunnerError,
+    OpenAITransientError,
+)
 
-from sqlforge.schemas.evaluation import GenerationResult
-
-
-class ModelRunner(Protocol):
-    """Protocol for model inference engines."""
-
-    def generate(self, prompt: str, **kwargs: object) -> GenerationResult:
-        """Generate SQL completion for a prompt."""
-        ...
+__all__ = [
+    "APIBudgetExceededError",
+    "APIOptInRequiredError",
+    "LocalHFModelRunner",
+    "LocalModelDependencyError",
+    "MockModelError",
+    "MockModelRunner",
+    "ModelRunner",
+    "OpenAIPermanentError",
+    "OpenAIRunner",
+    "OpenAIRunnerError",
+    "OpenAITransientError",
+]

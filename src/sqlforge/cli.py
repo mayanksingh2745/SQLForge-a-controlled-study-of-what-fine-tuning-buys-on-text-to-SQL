@@ -1,6 +1,7 @@
 """Command Line Interface for SQLForge."""
 
 from pathlib import Path
+from typing import Any
 
 import click
 from rich.console import Console
@@ -754,6 +755,362 @@ def prompt_assemble_cmd(
     console.print(table)
     console.print("\n[bold cyan]Assembled Prompt Text:[/bold cyan]\n")
     console.print(assembled.prompt_text)
+
+
+@main.group("baseline")
+def baseline_group() -> None:
+    """Run and verify baseline evaluations across open-weight and frontier models (EXP-01)."""
+    pass
+
+
+@baseline_group.command("run")
+@click.option(
+    "--model",
+    "model_key",
+    type=click.Choice(["qwen25_coder_1_5b", "qwen25_coder_7b", "frontier_api_ref"]),
+    default="qwen25_coder_1_5b",
+    help="Model identifier to evaluate.",
+)
+@click.option(
+    "--k-shots",
+    default=0,
+    type=int,
+    help="Number of few-shot demonstrations (0 for zero-shot, 3 for 3-shot BM25).",
+)
+@click.option(
+    "--dataset",
+    "dataset_spec",
+    default="spider:dev",
+    help="Dataset split specification (e.g. 'spider:dev', 'bird_mini:dev', 'held_out_custom:test').",
+)
+@click.option(
+    "--schema-format",
+    default="ddl",
+    type=click.Choice(["ddl", "compact", "json"]),
+    help="Schema representation format.",
+)
+@click.option(
+    "--max-examples",
+    type=int,
+    default=None,
+    help="Maximum number of evaluation examples to process.",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Validate configuration, prompts, and retrieval isolation without executing inference.",
+)
+@click.option(
+    "--live-api",
+    is_flag=True,
+    help="Explicit opt-in required to invoke paid frontier API endpoints.",
+)
+@click.option(
+    "--spending-limit",
+    default=50.0,
+    type=float,
+    help="Hard dollar budget limit for API calls (maximum $50.00 USD).",
+)
+@click.option(
+    "--artifact-dir",
+    default="artifacts/runs",
+    type=click.Path(file_okay=False, path_type=Path),
+    help="Directory where experiment run artifacts are stored.",
+)
+@click.option(
+    "--run-id",
+    help="Optional explicit run ID.",
+)
+@click.option(
+    "--seed",
+    default=42,
+    type=int,
+    help="Random seed for reproducibility.",
+)
+def baseline_run_cmd(
+    model_key: str,
+    k_shots: int,
+    dataset_spec: str,
+    schema_format: str,
+    max_examples: int | None,
+    dry_run: bool,
+    live_api: bool,
+    spending_limit: float,
+    artifact_dir: Path,
+    run_id: str | None,
+    seed: int,
+) -> None:
+    """Execute or dry-run a baseline evaluation following the EXP-01 research protocol."""
+    from sqlforge.data.held_out import get_subscription_analytics_schema, load_held_out_dataset
+    from sqlforge.data.manifest import load_examples_from_file
+    from sqlforge.data.spider import load_spider_split, parse_spider_tables
+    from sqlforge.pipeline.baseline import BaselinePipelineHarness
+    from sqlforge.schemas.evaluation import EvaluationMetrics
+    from sqlforge.schemas.examples import DatasetSplit, TextToSQLExample
+    from sqlforge.schemas.metadata import SchemaMetadata
+
+    console.print("\n[bold cyan]SQLForge Baseline Evaluation (EXP-01)[/bold cyan]")
+
+    root = Path(__file__).resolve().parent.parent.parent
+    fixtures_dir = root / "tests" / "fixtures" / "dataset"
+    processed_dir = root / "data" / "processed"
+
+    eval_examples: list[TextToSQLExample] = []
+    train_examples: list[TextToSQLExample] = []
+    schemas: dict[str, SchemaMetadata] = {}
+    is_synthetic = True
+
+    # Resolve dataset and schemas
+    if dataset_spec == "spider:dev":
+        real_dev = processed_dir / "spider" / "dev.jsonl"
+        real_train = processed_dir / "spider" / "train.jsonl"
+        real_tables = processed_dir / "spider" / "tables.json"
+
+        if real_dev.is_file() and real_tables.is_file():
+            is_synthetic = False
+            schemas = parse_spider_tables(real_tables)
+            eval_examples = load_examples_from_file(real_dev)
+            if real_train.is_file():
+                train_examples = load_examples_from_file(real_train)
+        else:
+            fix_tables = fixtures_dir / "spider" / "tables.json"
+            fix_dev = fixtures_dir / "spider" / "dev.json"
+            fix_train = fixtures_dir / "spider" / "train_spider.json"
+            schemas = parse_spider_tables(fix_tables)
+            eval_examples = load_spider_split(fix_dev, schemas, split=DatasetSplit.DEV)
+            train_examples = load_spider_split(fix_train, schemas, split=DatasetSplit.TRAIN)
+    elif dataset_spec == "held_out_custom:test":
+        h_schema = get_subscription_analytics_schema()
+        schemas = {h_schema.db_id: h_schema}
+        h_file = fixtures_dir / "custom_held_out" / "held_out_examples.json"
+        eval_examples = load_held_out_dataset(h_file)
+    else:
+        console.print(f"[red]Error: Unsupported or uningested dataset '{dataset_spec}'.[/red]")
+        raise click.Abort()
+
+    if is_synthetic:
+        console.print(
+            "[yellow]NOTE: Real benchmark archive not detected in data/processed/. "
+            "Using synthetic test fixtures from tests/fixtures/dataset/.\n"
+            "Results reflect software verification only and must NOT be cited as empirical benchmark claims.[/yellow]\n"
+        )
+
+    tracker = ExperimentTracker(base_artifact_dir=artifact_dir)
+    harness = BaselinePipelineHarness(tracker=tracker)
+
+    try:
+        result = harness.run(
+            model_key=model_key,
+            eval_examples=eval_examples,
+            schemas=schemas,
+            train_examples=train_examples if k_shots > 0 else None,
+            k_shots=k_shots,
+            schema_format=schema_format,
+            max_examples=max_examples,
+            run_id=run_id,
+            seed=seed,
+            dry_run=dry_run,
+            allow_live_api=live_api,
+            api_spending_limit=spending_limit,
+        )
+    except Exception as exc:
+        console.print(f"[bold red][FAILED] Baseline execution error: {exc}[/bold red]")
+        raise click.Abort() from exc
+
+    table = Table(title="Baseline Execution Summary", show_header=True, header_style="bold magenta")
+    table.add_column("Property", style="dim", width=24)
+    table.add_column("Value")
+
+    table.add_row("Run ID", result.run_id)
+    table.add_row("Model", result.model_id)
+    table.add_row("k-shots", str(result.k_shots))
+    table.add_row("Total Examples (N)", str(result.total_examples))
+    table.add_row(
+        "Status",
+        f"[bold green]{result.status.upper()}[/bold green]"
+        if result.status in ("completed", "dry_run")
+        else f"[bold red]{result.status.upper()}[/bold red]",
+    )
+    table.add_row(
+        "Manifest Verified",
+        "[bold green]PASSED[/bold green]" if result.verified else "[bold red]FAILED[/bold red]",
+    )
+
+    if result.status == "completed" and isinstance(result.metrics, EvaluationMetrics):
+        metrics = result.metrics
+        acc_pct = metrics.execution_accuracy * 100.0
+        ci = metrics.confidence_interval
+        ci_str = f"[{ci.lower * 100.0:.1f}%, {ci.upper * 100.0:.1f}%]" if ci else "N/A"
+        syntax_rate = (metrics.syntax_valid_rate or 0.0) * 100.0
+        exec_rate = (metrics.execution_success_rate or 0.0) * 100.0
+        table.add_row("Execution Accuracy", f"{acc_pct:.2f}% (95% CI: {ci_str})")
+        table.add_row("Syntax Valid Rate", f"{syntax_rate:.2f}%")
+        table.add_row("Execution Success Rate", f"{exec_rate:.2f}%")
+        table.add_row("Exact Match Rate", f"{metrics.exact_match_accuracy * 100.0:.2f}%")
+        table.add_row("Total Tokens", str(result.total_tokens))
+        table.add_row("Total Cost (USD)", f"${result.total_cost_usd:.4f}")
+
+    console.print(table)
+
+
+@baseline_group.command("verify")
+@click.argument("run_id")
+@click.option(
+    "--artifact-dir",
+    default="artifacts/runs",
+    type=click.Path(file_okay=False, path_type=Path),
+    help="Directory where experiment run artifacts are stored.",
+)
+def baseline_verify_cmd(run_id: str, artifact_dir: Path) -> None:
+    """Verify cryptographic manifest integrity of a completed baseline run."""
+    tracker = ExperimentTracker(base_artifact_dir=artifact_dir)
+
+    console.print(f"\n[bold cyan]Verifying Baseline Run: {run_id}[/bold cyan]")
+    try:
+        report = tracker.verify_run(run_id, strict=True)
+    except Exception as exc:
+        console.print(f"[bold red]Verification failed with exception: {exc}[/bold red]")
+        raise click.Abort() from exc
+
+    table = Table(
+        title="Manifest Verification Diagnostics", show_header=True, header_style="bold magenta"
+    )
+    table.add_column("Property", style="dim", width=24)
+    table.add_column("Value")
+
+    table.add_row("Run ID", run_id)
+    table.add_row(
+        "Verification Status",
+        "[bold green]PASSED[/bold green]" if report["verified"] else "[bold red]FAILED[/bold red]",
+    )
+    table.add_row("Total Files Verified", str(len(report.get("file_details", {}))))
+
+    if report.get("errors"):
+        for err in report["errors"]:
+            table.add_row("[red]Error[/red]", str(err))
+
+    console.print(table)
+
+
+@baseline_group.command("stats")
+@click.argument("run_id_a")
+@click.option(
+    "--compare-to",
+    "run_id_b",
+    default=None,
+    help="Second run ID for paired difference bootstrap CI and McNemar test.",
+)
+@click.option(
+    "--artifact-dir",
+    default="artifacts/runs",
+    type=click.Path(file_okay=False, path_type=Path),
+    help="Directory where experiment run artifacts are stored.",
+)
+def baseline_stats_cmd(run_id_a: str, run_id_b: str | None, artifact_dir: Path) -> None:
+    """Inspect statistical confidence intervals or compare two runs with paired tests."""
+    import json
+
+    from sqlforge.evaluation.statistics import compute_paired_difference_ci, mcnemar_test
+
+    tracker = ExperimentTracker(base_artifact_dir=artifact_dir)
+    run_dir_a = tracker.base_dir / run_id_a
+    if not run_dir_a.is_dir():
+        console.print(f"[red]Error: Run directory not found: {run_dir_a}[/red]")
+        raise click.Abort()
+
+    gen_file_a = run_dir_a / "generations.jsonl"
+    metrics_file_a = run_dir_a / "metrics.json"
+
+    console.print(f"\n[bold cyan]Statistical Analysis for Run: {run_id_a}[/bold cyan]")
+
+    if metrics_file_a.is_file():
+        with open(metrics_file_a, encoding="utf-8") as f:
+            m_a = json.load(f)
+        ci_a = m_a.get("confidence_interval")
+        acc_a = m_a.get("execution_accuracy", 0.0) * 100.0
+        ci_str = f"[{ci_a['lower'] * 100.0:.2f}%, {ci_a['upper'] * 100.0:.2f}%]" if ci_a else "N/A"
+        console.print(
+            f"Execution Accuracy: [bold green]{acc_a:.2f}%[/bold green] (95% Bootstrap CI: {ci_str})"
+        )
+
+    if run_id_b:
+        run_dir_b = tracker.base_dir / run_id_b
+        if not run_dir_b.is_dir():
+            console.print(f"[red]Error: Run directory not found: {run_dir_b}[/red]")
+            raise click.Abort()
+
+        gen_file_b = run_dir_b / "generations.jsonl"
+        if not gen_file_a.is_file() or not gen_file_b.is_file():
+            console.print(
+                "[red]Error: Both runs must contain generations.jsonl for paired statistical comparison.[/red]"
+            )
+            raise click.Abort()
+
+        # Load generations and align by example_id
+        def _load_gens(p: Path) -> dict[str, Any]:
+            records = {}
+            with open(p, encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        obj = json.loads(line)
+                        records[obj["example_id"]] = obj
+            return records
+
+        gens_a = _load_gens(gen_file_a)
+        gens_b = _load_gens(gen_file_b)
+
+        common_ids = sorted(set(gens_a.keys()) & set(gens_b.keys()))
+        if not common_ids:
+            console.print(
+                "[red]Error: Runs share 0 common example_ids. Cannot perform paired comparison.[/red]"
+            )
+            raise click.Abort()
+
+        # For paired difference: score is 1.0 if generated query matches gold, 0.0 otherwise
+        scores_a = [
+            1.0
+            if gens_a[eid].get("generated_sql", "").strip()
+            == gens_a[eid].get("gold_sql", "").strip()
+            else 0.0
+            for eid in common_ids
+        ]
+        scores_b = [
+            1.0
+            if gens_b[eid].get("generated_sql", "").strip()
+            == gens_b[eid].get("gold_sql", "").strip()
+            else 0.0
+            for eid in common_ids
+        ]
+
+        paired_ci = compute_paired_difference_ci(scores_a, scores_b)
+        mcnemar = mcnemar_test(scores_a, scores_b)
+
+        table = Table(
+            title=f"Paired Comparison: {run_id_a} vs {run_id_b}",
+            show_header=True,
+            header_style="bold magenta",
+        )
+        table.add_column("Property", style="dim", width=36)
+        table.add_column("Value")
+
+        table.add_row("Common Evaluated Examples (N)", str(len(common_ids)))
+        table.add_row("Mean Score A", f"{sum(scores_a) / len(scores_a) * 100.0:.2f}%")
+        table.add_row("Mean Score B", f"{sum(scores_b) / len(scores_b) * 100.0:.2f}%")
+        table.add_row(
+            "Difference (A - B)", f"{(sum(scores_a) - sum(scores_b)) / len(scores_a) * 100.0:+.2f}%"
+        )
+        table.add_row(
+            "Paired 95% Bootstrap CI",
+            f"[{paired_ci.lower * 100.0:+.2f}%, {paired_ci.upper * 100.0:+.2f}%]",
+        )
+        table.add_row("McNemar Chi-Square Statistic", f"{mcnemar['statistic']:.4f}")
+        table.add_row("McNemar p-value", f"{mcnemar['p_value']:.4e}")
+        table.add_row(
+            "Statistically Significant (p < 0.05)",
+            "[bold green]Yes[/bold green]" if mcnemar["significant"] else "[yellow]No[/yellow]",
+        )
+
+        console.print(table)
 
 
 if __name__ == "__main__":
