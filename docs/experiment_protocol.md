@@ -46,20 +46,27 @@ To prevent reporting anomalous lucky runs:
 
 ## 5. Artifact Retention & Quarantine Policy
 
-To maintain repository hygiene and avoid storage saturation:
+To maintain repository hygiene, avoid GitHub storage saturation, and ensure permanent scientific reproducibility:
 
 ```text
 artifacts/runs/<run_id>/
-├── config.yaml          # Stored permanently (< 10 KB)
-├── run_metadata.json    # Stored permanently (< 5 KB)
-├── metrics.json         # Stored permanently (< 20 KB)
-├── generations.jsonl    # Stored permanently (< 5 MB)
+├── config.yaml          # Frozen resolved configuration snapshot (< 10 KB)
+├── run_metadata.json    # Provenance, git hash, hardware, seeds (< 5 KB)
+├── manifest.json        # Cryptographic SHA-256 manifest of all files (< 5 KB)
+├── metrics.json         # Aggregated quality, efficiency, and bootstrap metrics (< 20 KB)
+├── generations.jsonl    # Line-by-line model predictions and execution outcomes (< 5 MB)
+├── eval_anomalies.json   # Log of timeouts, syntax errors, and ambiguous matches (< 50 KB)
 └── checkpoints/         # Ephemeral (LoRA adapters only; base weights NEVER saved)
 ```
 
-1. **Adapter Only:** Never save full 7B base model weights. Save only the PEFT LoRA adapter checkpoint (`adapter_model.bin` or `adapter_model.safetensors`, typically < 50 MB).
-2. **Git Exclusion:** All files under `artifacts/runs/*` and `models/*` are strictly gitignored except for `.gitkeep`.
-3. **Checkpoint Pruning:** During hyperparameter sweeps, retain only the checkpoint with the highest validation execution accuracy on the dev set. Delete intermediate optimizer states (`optimizer.pt`) after training concludes.
+1. **Storage Tiering vs. Git Tracking:**
+   - **Tracked in Git:** Code, YAML configurations, Pydantic schemas, unit tests, and lightweight test fixtures (`tests/fixtures/runs/`).
+   - **Local / External Persistent Storage (Gitignored):** Raw run outputs (`artifacts/runs/*`) and model checkpoints (`artifacts/checkpoints/*`) are stored locally or published to dedicated external open repositories (e.g. Zenodo or Hugging Face Hub dataset). They are strictly gitignored to keep the repository lightweight and portable.
+2. **Adapter Only:** Never save full 7B base model weights. Save only the PEFT LoRA adapter checkpoint (`adapter_model.bin` or `adapter_model.safetensors`, typically < 50 MB).
+3. **Collision Safety:** Run directories use timestamped, UUID-tagged identifiers. If an existing populated directory is targeted, `ExperimentTracker` raises `FileExistsError` rather than silently overwriting past records.
+4. **Provenance & Manifest Verification:** All completed runs generate a `manifest.json` with SHA-256 digests. Run integrity is validated via `tracker.verify_run(run_id)`.
+5. **Checkpoint Pruning:** During hyperparameter sweeps, retain only the checkpoint with the highest validation execution accuracy on the dev set. Delete intermediate optimizer states (`optimizer.pt`) after training concludes.
+
 
 ---
 

@@ -12,10 +12,49 @@ Every experiment execution creates an isolated, self-contained directory in `art
 artifacts/runs/<run_id>/
 ├── config.yaml              # Frozen resolved configuration snapshot
 ├── run_metadata.json        # Machine environment, git commit, seed, status
+├── manifest.json            # SHA-256 cryptographic checksums of all run artifacts
 ├── metrics.json             # Aggregated quality, efficiency, and bootstrap metrics
 ├── generations.jsonl        # Line-by-line model predictions and execution outcomes
-└── events.log               # Structured chronological log with error traces
+├── eval_anomalies.json       # Record of timeouts, syntax errors, and ambiguous comparisons
+├── events.log               # Structured chronological log with error traces
+└── checkpoints/             # PEFT LoRA adapter checkpoints (ephemeral / external storage)
 ```
+
+---
+
+## 2. Artifact Retention Tiers & Git Tracking Policy
+
+To reconcile permanent reproducibility requirements with Git repository cleanliness and GitHub storage limits:
+
+### Tier 1: Tracked in Git
+- System source code, schemas, and CLI tooling (`src/sqlforge/`).
+- Layered YAML configuration definitions (`configs/`).
+- Unit and integration tests (`tests/`).
+- Small, representative test fixtures (`tests/fixtures/runs/`) for pipeline testing.
+- Aggregated derived summary tables, figures, and research write-ups (`reports/`, `docs/`).
+
+### Tier 2: Local & External Persistent Storage (Gitignored)
+- Raw experiment execution directories (`artifacts/runs/*`).
+- Intermediate and processed datasets (`data/raw/*`, `data/processed/*`).
+- Model checkpoints and adapter weights (`artifacts/checkpoints/*`, `models/weights/*`).
+- **Archival Procedure:** For permanent archival, run directories are bundled into an immutable tarball with an overall SHA-256 manifest and published to a public scientific repository (e.g. Zenodo, Hugging Face Hub dataset).
+
+### Tier 3: Never Committed Under Any Circumstances
+- Commercial API secret keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc.).
+- Machine-specific credentials or sensitive configuration files (`.env`).
+- Multi-gigabyte raw model weights.
+
+### Collision-Safe Run Execution
+- All run IDs are generated with deterministic timestamps and random UUID suffixes: `<prefix>_<YYYYMMDD_HHMMSS>_<short_uuid>`.
+- The `ExperimentTracker` actively checks whether target run directories exist. If an existing directory contains files, execution halts immediately with a `FileExistsError` to prevent silent overwriting of historical data.
+
+### Provenance & Completeness Verification
+- At run completion, `tracker.finish_run()` automatically invokes `write_manifest()` to compute SHA-256 digests for all generated files and write `manifest.json`.
+- The `tracker.verify_run(run_id)` diagnostic checks:
+  1. Presence of required files (`run_metadata.json`, `config.yaml`, and `metrics.json` if status is `completed`).
+  2. Bitwise hash agreement of every file listed in `manifest.json`.
+  3. Non-corruption of the JSON/JSONL format.
+
 
 ---
 
