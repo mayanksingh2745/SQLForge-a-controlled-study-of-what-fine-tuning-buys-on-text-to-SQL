@@ -19,6 +19,8 @@ datasets:
   bird_mini:
     name: "BIRD (Benchmark for Large-scale Database Grounded Text-to-SQL)"
     version: "1.0-subset"
+    subset_variant: "mini_dev_500" # Options: mini_dev_500 (canonical 500 SELECT-only), mini_dev_780 (Mini-Dev V2 780 instances)
+    license: "CC-BY-NC-SA-4.0"
     source_url: "https://bird-bench.github.io/"
     dialect: "sqlite"
     splits:

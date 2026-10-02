@@ -1,0 +1,18 @@
+[
+  {
+    "question_id": 101,
+    "db_id": "financial",
+    "question": "What is the total number of female clients born after 1980?",
+    "evidence": "gender = 'F' refers to female clients; birth_date > '1980-01-01'",
+    "SQL": "SELECT count(*) FROM client WHERE gender = 'F' AND birth_date > '1980-01-01';",
+    "difficulty": "simple"
+  },
+  {
+    "question_id": 102,
+    "db_id": "financial",
+    "question": "Find the distinct frequency types of accounts in district 1.",
+    "evidence": "district_id = 1",
+    "SQL": "SELECT DISTINCT frequency FROM account WHERE district_id = 1;",
+    "difficulty": "moderate"
+  }
+]

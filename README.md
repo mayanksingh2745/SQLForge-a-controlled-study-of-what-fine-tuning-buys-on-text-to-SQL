@@ -109,7 +109,8 @@ SQLForge/
 │   │   └── experiments.py         # ExperimentConfig, RunMetadata, HardwareMetadata
 │   ├── experiments/               # Local-first experiment tracking
 │   │   └── tracker.py             # ExperimentTracker creating artifacts/runs/
-│   ├── data/                      # Planned: Ingestion & leakage checkers
+│   ├── data/                      # Ingestion adapters, contamination auditor, isolation guards, manifests
+
 │   ├── models/                    # Planned: Local & API model runners
 │   ├── prompting/                 # Planned: Schema serializers & few-shot retrievers
 │   ├── training/                  # Planned: LoRA/QLoRA fine-tuning engines
@@ -175,6 +176,20 @@ sqlforge config validate
 Create a traceable experiment directory with frozen configuration and hardware metadata:
 ```bash
 sqlforge experiment init --name pilot_run --seed 42
+```
+
+### Dataset Ingestion, Validation & Contamination Audit
+
+Validate schemas, ingest benchmark partitions, and audit cross-partition leakage:
+```bash
+# Validate Spider, BIRD Mini-Dev, and Custom Held-Out contracts
+sqlforge data validate
+
+# Audit cross-partition duplicates, fuzzy n-gram lexical overlap, and schema disjointness
+sqlforge data audit --threshold 0.85 --output-report reports/contamination_audit.json
+
+# Verify cryptographic SHA-256 dataset manifests
+sqlforge data manifest --verify data/processed/dataset_manifest.json
 ```
 
 ### Run the End-to-End Mock Pipeline Harness
