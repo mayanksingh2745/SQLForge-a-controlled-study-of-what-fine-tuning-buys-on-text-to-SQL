@@ -117,6 +117,58 @@ def test_evaluation_metrics_contract() -> None:
     assert metrics.execution_accuracy == 0.75
     assert metrics.bootstrap_ci_execution_accuracy is not None
     assert metrics.bootstrap_ci_execution_accuracy.lower == 0.72
+    # Alias must be automatically reconciled
+    assert metrics.execution_success_rate == 0.92
+
+
+def test_confidence_interval_invalid_bounds_raises() -> None:
+    """Ensure ConfidenceInterval rejects lower bound strictly greater than upper bound."""
+    with pytest.raises(ValidationError, match="lower bound .* cannot exceed upper bound"):
+        ConfidenceInterval(lower=0.85, upper=0.75)
+
+
+def test_evaluation_metrics_alias_reconciliation() -> None:
+    """Verify execution_success_rate and valid_sql_rate aliases synchronize properly."""
+    # Only execution_success_rate provided -> valid_sql_rate populated
+    m1 = EvaluationMetrics(
+        total_examples=100,
+        execution_accuracy=0.80,
+        exact_match_accuracy=0.70,
+        execution_success_rate=0.95,
+    )
+    assert m1.valid_sql_rate == 0.95
+    assert m1.syntax_valid_rate is None  # Unmeasured metrics default to None
+    assert m1.syntax_error_rate is None
+    assert m1.timeout_rate is None
+
+    # Only valid_sql_rate provided -> execution_success_rate populated
+    m2 = EvaluationMetrics(
+        total_examples=100,
+        execution_accuracy=0.80,
+        exact_match_accuracy=0.70,
+        valid_sql_rate=0.91,
+    )
+    assert m2.execution_success_rate == 0.91
+
+    # Both provided and matching -> succeeds
+    m3 = EvaluationMetrics(
+        total_examples=100,
+        execution_accuracy=0.80,
+        exact_match_accuracy=0.70,
+        execution_success_rate=0.91,
+        valid_sql_rate=0.91,
+    )
+    assert m3.valid_sql_rate == 0.91
+
+    # Both provided but conflicting -> raises ValidationError
+    with pytest.raises(ValidationError, match="Conflicting metrics"):
+        EvaluationMetrics(
+            total_examples=100,
+            execution_accuracy=0.80,
+            exact_match_accuracy=0.70,
+            execution_success_rate=0.95,
+            valid_sql_rate=0.80,
+        )
 
 
 def test_experiment_config_validation() -> None:

@@ -99,3 +99,78 @@ Per repository rules: **Structural documentation fixes are strictly classified a
   - Verifying TOST equivalence clauses in `hypotheses.md`.
 * **Implementation Gap Reminder:** *Pipeline execution tests cannot run because Step 2 has not been implemented yet. All missing pipeline components remain marked UNVERIFIED.*
 * **Verification:** 34 tests passing cleanly in pytest.
+
+---
+
+### Issue H: Run ID Validation and Path Containment Deficiencies
+* **Category:** Foundation Hardening & Security
+* **Status:** **FIXED** (Implementation & Regression Tests)
+* **Locations:**
+  - `src/sqlforge/experiments/tracker.py` (`validate_run_id`, `_resolve_run_dir`, `init_run`)
+  - `tests/unit/test_tracker.py` (`test_tracker_invalid_run_ids_rejected`, `test_tracker_empty_directory_collision`)
+* **Problem:** Run IDs were not strictly validated, allowing path traversal sequences (`..`), slashes, absolute paths, or special characters. Pre-existing empty directories were not rejected atomically upon initialization.
+* **Remedy:** Added conservative validation regex `^[a-zA-Z0-9_\-]+$` with length $\le 128$. Enforced strict containment within the configured artifact directory root (`run_dir.parent == self.base_dir`). Replaced lenient directory checks with atomic directory reservation (`run_dir.mkdir(parents=False, exist_ok=False)`), preventing silent collisions on both populated and empty directories.
+* **Verification:** Verified via `test_tracker_invalid_run_ids_rejected` and `test_tracker_empty_directory_collision`.
+
+---
+
+### Issue I: Destructive Anomaly Log Overwrites
+* **Category:** Foundation Hardening & Data Integrity
+* **Status:** **FIXED** (Implementation & Regression Tests)
+* **Locations:**
+  - `src/sqlforge/experiments/tracker.py` (`log_anomaly`)
+  - `tests/unit/test_tracker.py` (`test_tracker_corrupted_anomaly_log_preserves_content`)
+* **Problem:** If `eval_anomalies.json` was corrupted or contained malformed JSON, subsequent writes could silently wipe or reset the log to an empty list, destroying diagnostic evidence.
+* **Remedy:** Implemented non-destructive anomaly parsing. If the file is malformed JSON or contains a non-list root structure, `log_anomaly` preserves the existing file completely untouched and raises an actionable `ValueError`.
+* **Verification:** Verified via `test_tracker_corrupted_anomaly_log_preserves_content`.
+
+---
+
+### Issue J: Lenient Manifest and Record Syntax Verification
+* **Category:** Foundation Hardening & Cryptographic Audit
+* **Status:** **FIXED** (Implementation & Regression Tests)
+* **Locations:**
+  - `src/sqlforge/experiments/tracker.py` (`write_manifest`, `verify_run`, `finish_run`)
+  - `tests/unit/test_tracker.py` (`test_tracker_verify_run_strict_vs_lenient`)
+* **Problem:** `verify_run` did not mandate `manifest.json` presence by default, did not detect untracked files, did not validate line-by-line syntax in `generations.jsonl`, and relied on ambiguous hash lifecycle timing.
+* **Remedy:** Formalized strict verification (`strict=True` default) requiring `manifest.json`. Added manifest self-exclusion in `write_manifest` to avoid hash circularity. Added checks for untracked files, JSONL line corruption, and YAML syntax. Synchronized lifecycle so `finish_run` updates metadata first and records final SHA-256 hashes immediately after. Clarified in documentation that SHA-256 verifies file integrity, not scientific validity.
+* **Verification:** Verified via `test_tracker_verify_run_strict_vs_lenient`.
+
+---
+
+### Issue K: Metric Schema Consistency and Uncomputed Defaults
+* **Category:** Data Contracts & Schema Validation
+* **Status:** **FIXED** (Implementation & Unit Tests)
+* **Locations:**
+  - `src/sqlforge/schemas/evaluation.py` (`ConfidenceInterval`, `EvaluationMetrics`)
+  - `tests/unit/test_schemas.py` (`test_confidence_interval_invalid_bounds_raises`, `test_evaluation_metrics_alias_reconciliation`)
+* **Problem:** `valid_sql_rate` and `execution_success_rate` were documented aliases but could silently disagree. Uncomputed metrics defaulted to `0.0` or `1.0`, misleading consumers. `ConfidenceInterval` did not enforce `lower <= upper`.
+* **Remedy:** Added `@model_validator(mode="after")` to `ConfidenceInterval` ensuring `lower <= upper`. Updated uncomputed rate fields in `EvaluationMetrics` to default to `None`. Added bidirectional alias reconciliation between `execution_success_rate` and `valid_sql_rate` that raises `ValueError` if explicit values conflict.
+* **Verification:** Verified via `test_confidence_interval_invalid_bounds_raises` and `test_evaluation_metrics_alias_reconciliation`.
+
+---
+
+### Issue L: Absence of End-to-End Core Pipeline Harness
+* **Category:** Core Pipeline Integration
+* **Status:** **FIXED** (Implementation & Comprehensive Integration Suite)
+* **Locations:**
+  - `src/sqlforge/data/fixtures.py` & `tests/fixtures/dataset/mock_spider.json`
+  - `src/sqlforge/prompting/builder.py`
+  - `src/sqlforge/models/mock.py`
+  - `src/sqlforge/evaluation/mock_eval.py`
+  - `src/sqlforge/pipeline/harness.py`
+  - `src/sqlforge/cli.py` (`sqlforge pipeline mock`)
+  - `configs/mock_pipeline.yaml`
+  - `tests/unit/test_fixtures.py`, `tests/unit/test_prompt_builder.py`, `tests/unit/test_mock_pipeline.py`, `tests/integration/test_pipeline_cli.py`
+* **Problem:** Repository had configuration schemas and an experiment tracker, but no complete executable pipeline harness connecting configuration, data, prompts, models, evaluation, tracking, and verification.
+* **Remedy:** Built a minimal, deterministic mock pipeline vertical slice:
+  - Validated config loader with early failure on invalid configs.
+  - Deterministic fixture dataset with duplicate ID checks.
+  - Independent prompt builder.
+  - Deterministic mock model with explicit `/* MOCK_SYNTHETIC */` disclaimers.
+  - Mock evaluator checking pipeline contracts and logging anomalies.
+  - End-to-end `MockPipelineHarness` with atomic run tracking and strict verification.
+  - Dedicated CLI command `sqlforge pipeline mock` with `--dry-run`, `--config`, `--fixtures`, `--artifact-dir`, and `--fail-mode`.
+  - Zero external network requests, zero model weights, zero real dataset ingestion, and zero empirical performance claims.
+* **Verification:** 60 automated tests passing across unit and CLI integration suites.
+

@@ -20,3 +20,20 @@ This log documents the independent reviews, structural integrity audits, and gat
   4. *Equivalence & Parity Ambiguity:* Hypotheses previously conflated failing to reject the null hypothesis of difference ($p \ge 0.05$) with demonstrating equivalence. Resolved by formalizing the Two One-Sided Tests (TOST) framework with practical equivalence bounds.
   5. *Matrix & Config Mismatch:* `configs/experiments.yaml` omitted experiments `exp07` through `exp10` and lacked explicit BM25 vs. dense retrieval arms in `exp02`.
 * **Verdict:** Remediations applied and verified. Ready for Step 2 pipeline harness.
+
+### Entry 002: Step 2 Foundation Hardening & Core Pipeline Harness
+* **Date:** 2026-10-02
+* **Auditor:** Senior ML Research Engineer & Skeptical Reviewer
+* **Base Commit:** `a3938cd` (Merge of Structural Remediation PR #3)
+* **Branch:** `step-2/core-pipeline-harness`
+* **Objective:** Audit and harden foundation tracker and metric contracts; implement deterministic end-to-end mock pipeline harness.
+* **Key Findings & Verified Remediations:**
+  1. *Run ID & Containment Hardening:* Tracker now strictly validates run IDs (`^[a-zA-Z0-9_\-]+$`, length $\le 128$), prevents path traversal (`..`, slashes, absolute paths), and enforces containment within the configured artifact directory.
+  2. *Atomic Reservation:* Directory reservation now uses atomic `mkdir(parents=False, exist_ok=False)` to prevent silent reuse or overwriting of both populated and empty directories.
+  3. *Non-Destructive Anomaly Logging:* `log_anomaly` parses existing logs and preserves corrupted or structural mismatches without silent truncation or overwrites, raising actionable `ValueError`.
+  4. *Strict Manifest & Record Syntax Verification:* `verify_run` enforces `manifest.json` presence in strict mode, checks SHA-256 self-exclusion, flags untracked files, and validates syntax of `run_metadata.json`, `config.yaml`, `metrics.json`, and `generations.jsonl`.
+  5. *Metric Alias & Defaults Consistency:* `valid_sql_rate` and `execution_success_rate` are synchronized bidirectionally with conflict rejection. Uncomputed metrics default to `None` instead of misleading `0.0` or `1.0`. `ConfidenceInterval` enforces `lower <= upper`.
+  6. *Deterministic Mock Pipeline Vertical Slice:* Implemented validated configuration loading, deterministic fixtures (`mock_spider.json`), prompt builder, mock model (with clear synthetic tagging), mock evaluator, experiment tracking, and CLI command `sqlforge pipeline mock`.
+  7. *Strict Scope Discipline:* Zero real model downloads, zero frontier API requests, zero real dataset ingestion, and zero empirical claims made. All mock metrics visibly labeled synthetic.
+* **Verdict:** PASS. All 60 automated unit and integration tests passing. Clean linting and type checking.
+
