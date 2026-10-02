@@ -42,7 +42,7 @@ def test_system_defaults_validation_error() -> None:
     """Ensure validation fails when types or constraints are violated."""
     with pytest.raises(ValidationError):
         SystemDefaults(
-            execution_safety={"timeout_seconds": -5.0},  # Must be gt=0.0
+            execution_safety={"timeout_seconds": -5.0},  # type: ignore[arg-type]
         )
 
 

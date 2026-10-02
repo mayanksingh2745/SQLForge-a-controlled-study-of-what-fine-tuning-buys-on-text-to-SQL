@@ -26,7 +26,8 @@ graph TD
     style S0 fill:#2d6a4f,stroke:#1b4332,color:#ffffff
     style S1 fill:#2d6a4f,stroke:#1b4332,color:#ffffff
     style S2 fill:#2d6a4f,stroke:#1b4332,color:#ffffff
-    style S3 fill:#1d3557,stroke:#457b9d,color:#ffffff
+    style S3 fill:#2d6a4f,stroke:#1b4332,color:#ffffff
+    style S4 fill:#1d3557,stroke:#457b9d,color:#ffffff
 ```
 
 ---
@@ -56,13 +57,13 @@ graph TD
 * **Deliverables:** Spider 1.0 adapter, BIRD Mini-Dev adapter with ambiguity resolution (500 SELECT-only vs. 780 Mini-Dev V2), custom held-out schema foundation (`subscription_analytics_db`), cross-partition contamination auditor (`ContaminationAuditor`), runtime isolation guards (`IsolationGuard`), deterministic JSONL serialization and manifest generator, and CLI tooling (`sqlforge data validate`, `sqlforge data audit`, `sqlforge data manifest`).
 * **Exit Criteria:** 90 unit/integration tests passing in CI; verified zero leakage on clean partitions; machine-readable contamination audit reports.
 
-### Step 4: Schema Representation & Few-Shot RAG Pipeline (Next Step)
-* **Status:** Pending
+### Step 4: Schema Representation & Few-Shot RAG Pipeline
+* **Status:** Complete (PR #8).
 * **Prerequisites:** Step 3 ingested datasets.
-* **Deliverables:** DDL, compact pipe, and JSON schema serializers; BM25 training-example retriever; prompt formatting engine.
-* **Exit Criteria:** Formatted prompts strictly adhere to context limits; retrieval index isolated to training partition.
+* **Deliverables:** DDL, compact pipe, and JSON schema serializers; training-only BM25 retriever (`BM25Retriever`) with `IsolationGuard.assert_retrieval_isolation()` quarantine enforcement; prompt formatting engine (`PromptEngine`) with $k \in \{0, 1, 3, 5\}$, BIRD evidence integration, and graceful token budget degradation; CLI subcommands (`sqlforge prompt serialize`, `sqlforge prompt assemble`).
+* **Exit Criteria:** 117 unit/integration tests passing in CI; formatted prompts strictly adhere to context limits; retrieval index strictly isolated to training partition.
 
-### Step 5: Frontier API Reference & Zero-Shot Baselines
+### Step 5: Frontier API Reference & Zero-Shot Baselines (Next Step)
 * **Prerequisites:** Step 4 prompting engine.
 * **Deliverables:** Zero-shot and few-shot evaluation of Qwen2.5-Coder-1.5B, Qwen2.5-Coder-7B, and GPT-4o mini reference; cost tracking and rate limiting.
 * **Exit Criteria:** Baseline metrics (`EXP-01`) recorded in `artifacts/runs/` with 95% bootstrap CIs.

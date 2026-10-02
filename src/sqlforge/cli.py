@@ -606,5 +606,155 @@ def pipeline_mock_cmd(
     )
 
 
+@main.group("prompt")
+def prompt_group() -> None:
+    """Serialize database schemas and assemble Text-to-SQL prompts."""
+    pass
+
+
+@prompt_group.command("serialize")
+@click.option(
+    "--tables-file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Path to tables.json file (defaults to Spider fixture).",
+)
+@click.option(
+    "--db-id",
+    help="Database ID to serialize (defaults to first available in tables file).",
+)
+@click.option(
+    "--format",
+    "schema_format",
+    type=click.Choice(["ddl", "compact", "json"], case_sensitive=False),
+    default="ddl",
+    help="Serialization format: 'ddl', 'compact', or 'json'.",
+)
+def prompt_serialize_cmd(
+    tables_file: Path | None,
+    db_id: str | None,
+    schema_format: str,
+) -> None:
+    """Serialize a database schema to DDL, compact pipe, or structured JSON."""
+    from sqlforge.data.spider import parse_spider_tables
+    from sqlforge.prompting.serializers import get_serializer
+
+    root = Path(__file__).resolve().parent.parent.parent
+    tbl_path = tables_file or (root / "tests" / "fixtures" / "dataset" / "spider" / "tables.json")
+
+    schemas = parse_spider_tables(tbl_path)
+    target_id = db_id or next(iter(schemas.keys()))
+
+    if target_id not in schemas:
+        console.print(f"[red]Error: Database '{target_id}' not found in '{tbl_path}'.[/red]")
+        raise click.Abort()
+
+    serializer = get_serializer(schema_format)
+    output = serializer.serialize(schemas[target_id])
+    console.print(
+        f"\n[bold cyan]Serialized Schema ({target_id} - {schema_format.upper()}):[/bold cyan]\n"
+    )
+    console.print(output)
+
+
+@prompt_group.command("assemble")
+@click.option(
+    "--question",
+    default="What is the name and capacity of each stadium?",
+    help="Natural language question.",
+)
+@click.option(
+    "--db-id",
+    default="stadium",
+    help="Target database ID.",
+)
+@click.option(
+    "--k-shots",
+    type=click.Choice(["0", "1", "3", "5"]),
+    default="0",
+    help="Few-shot demonstration count (0, 1, 3, 5).",
+)
+@click.option(
+    "--format",
+    "schema_format",
+    type=click.Choice(["ddl", "compact", "json"], case_sensitive=False),
+    default="ddl",
+    help="Schema format ('ddl', 'compact', 'json').",
+)
+@click.option(
+    "--max-tokens",
+    type=int,
+    default=4096,
+    help="Context window token budget.",
+)
+def prompt_assemble_cmd(
+    question: str,
+    db_id: str,
+    k_shots: str,
+    schema_format: str,
+    max_tokens: int,
+) -> None:
+    """Assemble a zero-shot or few-shot Text-to-SQL prompt with schema and RAG demonstrations."""
+    from sqlforge.data.spider import load_spider_split, parse_spider_tables
+    from sqlforge.prompting.engine import PromptEngine
+    from sqlforge.prompting.retriever import BM25Retriever
+    from sqlforge.schemas.examples import DatasetSplit, TextToSQLExample
+
+    root = Path(__file__).resolve().parent.parent.parent
+    fixtures_dir = root / "tests" / "fixtures" / "dataset"
+    tbl_path = fixtures_dir / "spider" / "tables.json"
+    schemas = parse_spider_tables(tbl_path)
+
+    if db_id not in schemas:
+        console.print(f"[red]Error: Database '{db_id}' not found in fixtures.[/red]")
+        raise click.Abort()
+
+    k = int(k_shots)
+    retriever = None
+    if k > 0:
+        tr_path = fixtures_dir / "spider" / "train_spider.json"
+        train_examples = load_spider_split(tr_path, schemas, split=DatasetSplit.TRAIN)
+        retriever = BM25Retriever(train_examples)
+
+    engine = PromptEngine(
+        schema_format=schema_format,
+        retriever=retriever,
+        default_max_tokens=max_tokens,
+    )
+
+    query_example = TextToSQLExample(
+        id="query_cli_01",
+        question=question,
+        db_id=db_id,
+        gold_sql="SELECT Name, Capacity FROM stadium;",
+        dataset_name="spider",
+        split=DatasetSplit.DEV,
+    )
+
+    assembled = engine.assemble(
+        example=query_example,
+        schema=schemas[db_id],
+        k_shots=k,
+        max_tokens=max_tokens,
+    )
+
+    table = Table(title="Prompt Assembly Summary", show_header=True, header_style="bold magenta")
+    table.add_column("Property", style="dim", width=24)
+    table.add_column("Value")
+
+    table.add_row("Database ID", assembled.db_id)
+    table.add_row("Schema Format", assembled.schema_format.upper())
+    table.add_row("k-shots Attached", str(assembled.k_shots))
+    table.add_row("Retrieved Demos", ", ".join(assembled.retrieved_demonstration_ids) or "(none)")
+    table.add_row("Estimated Tokens", f"{assembled.token_count_estimate} / {max_tokens}")
+    table.add_row(
+        "Truncation Applied",
+        "[yellow]Yes[/yellow]" if assembled.truncation_applied else "[green]No[/green]",
+    )
+
+    console.print(table)
+    console.print("\n[bold cyan]Assembled Prompt Text:[/bold cyan]\n")
+    console.print(assembled.prompt_text)
+
+
 if __name__ == "__main__":
     main()
