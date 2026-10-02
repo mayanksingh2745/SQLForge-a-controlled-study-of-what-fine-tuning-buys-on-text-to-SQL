@@ -198,4 +198,34 @@ Per repository rules: **Structural documentation fixes are strictly classified a
 * **Remedy:** Added Pydantic schema validation for `metrics.json` via `EvaluationMetrics` and structure validation for `eval_anomalies.json` (JSON list of dicts). Explicitly defined that completed runs require `metrics.json`, while failed runs do not require `metrics.json` but require valid metadata, config, manifest, and intact anomalies if logged. Documented precisely what verification guarantees vs. what cryptographic hashes do not guarantee.
 * **Verification:** Verified via `test_tracker_verify_artifact_schemas_and_failed_runs`.
 
+---
+
+
+### Issue O: BIRD Mini-Dev Scope Ambiguity & Dataset Provenance Tracking
+* **Category:** Dataset Governance & Provenance
+* **Status:** **FIXED** (Implementation, Research Protocol & Test Suite)
+* **Locations:**
+  - `src/sqlforge/data/spider.py`, `src/sqlforge/data/bird.py`, `src/sqlforge/data/held_out.py`, `src/sqlforge/data/manifest.py`
+  - `docs/research/dataset_protocol.md`
+  - `configs/datasets.yaml`
+  - `tests/unit/test_dataset_contracts.py`, `tests/unit/test_spider_adapter.py`, `tests/unit/test_bird_adapter.py`, `tests/unit/test_held_out.py`
+* **Problem:** Research protocol was ambiguous regarding whether "BIRD Mini-Dev" referred to the 500-instance SELECT-only subset with external hints or the full 780-instance Mini-Dev V2 release. Ingestion adapters lacked typed provenance models, licensing tracking (CC BY-SA 4.0, CC BY-NC-SA 4.0, Apache-2.0), and deterministic manifest generation.
+* **Remedy:** Resolved ambiguity by explicitly defining `BirdSubsetVariant` (`mini_dev_500` vs. `mini_dev_780`). Pinned `mini_dev_500` as the canonical benchmark target for SQLForge while implementing adapter support for both. Implemented typed contracts (`DatasetProvenance`, `DatasetSplitManifest`, `DatasetManifest`), Spider 1.0 schema extractor, and `subscription_analytics_db` custom held-out contract.
+* **Verification:** Verified via `test_bird_mini_dev_loading`, `test_spider_tables_parsing`, `test_subscription_analytics_schema`, and `test_write_and_verify_dataset_manifest`.
+
+---
+
+### Issue P: Benchmark Contamination Auditing & Runtime Isolation Guards
+* **Category:** Evaluation Methodology & Data Integrity
+* **Status:** **FIXED** (Implementation & Integration Tests)
+* **Locations:**
+  - `src/sqlforge/data/audit.py` (`ContaminationAuditor`, `IsolationGuard`, `LeakageContaminationError`)
+  - `src/sqlforge/data/normalization.py` (`normalize_question`, `normalize_sql`, `compute_ngram_jaccard`)
+  - `src/sqlforge/cli.py` (`sqlforge data validate`, `sqlforge data audit`, `sqlforge data manifest`)
+  - `tests/unit/test_contamination_audit.py`, `tests/integration/test_data_cli.py`
+* **Problem:** Codebase had no automated tooling to detect normalized exact question/SQL duplicates across splits, configurable fuzzy n-gram lexical overlap, or schema disjointness violations ($D_{\text{train}} \cap D_{\text{eval}} = \emptyset$). Furthermore, no runtime isolation assertions existed to prevent evaluation instances from leaking into training or retrieval pools.
+* **Remedy:** Implemented `ContaminationAuditor` with exact question/SQL collision detection, word n-gram Jaccard overlap, schema disjointness audit, and split leakage detection. Implemented `IsolationGuard` asserting that training datasets and retrieval demonstration indexes contain strictly training instances with zero evaluation data or quarantined evaluation schemas. Added CLI command `sqlforge data audit`.
+* **Verification:** Verified via `test_clean_partitions_audit`, `test_contaminated_partitions_audit`, `test_isolation_guard_training_and_retrieval`, and `test_cli_data_audit_contaminated_failure`.
+
+
 

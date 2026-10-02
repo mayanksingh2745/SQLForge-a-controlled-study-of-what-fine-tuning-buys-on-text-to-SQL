@@ -1,0 +1,18 @@
+[
+  {
+    "id": "custom_held_out_0001",
+    "db_id": "subscription_analytics_db",
+    "question": "How many active subscriptions are currently on the enterprise tier plan?",
+    "gold_sql": "SELECT count(*) FROM subscriptions AS s JOIN plans AS p ON s.plan_id = p.plan_id WHERE s.status = 'active' AND p.tier = 'enterprise';",
+    "difficulty": "medium",
+    "evidence": "active subscriptions have status = 'active'"
+  },
+  {
+    "id": "custom_held_out_0002",
+    "db_id": "subscription_analytics_db",
+    "question": "List the customer company names that had invoices with discount greater than 50 dollars.",
+    "gold_sql": "SELECT DISTINCT c.company_name FROM customers AS c JOIN subscriptions AS s ON c.customer_id = s.customer_id JOIN invoices AS i ON s.subscription_id = i.subscription_id WHERE i.discount_amount_usd > 50;",
+    "difficulty": "hard",
+    "evidence": "discount refers to discount_amount_usd"
+  }
+]

@@ -33,16 +33,21 @@ SQLForge relies on three dataset tiers to evaluate distinct aspects of text-to-S
    - *Role:* Primary training corpus (`train`) and canonical cross-schema evaluation set (`dev`).
 2. **BIRD Benchmark Subset (Li et al., 2023):**
    - *Provenance:* University of Hong Kong & Alibaba DAMO Academy.
-   - *License:* Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0).
+   - *License:* Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0). Strict non-commercial research use only.
    - *Dialect:* SQLite 3.
    - *Structure:* Large-scale databases (over 33 GB data) with complex schema links, dirty values, and external domain knowledge ("evidence").
-   - *Role:* Evaluates robust execution and knowledge grounding on a 500-example dev subset.
+   - *Subset Ambiguity Resolution:*
+     - **Upstream Ambiguity:** Academic text-to-SQL research colloquially refers to "BIRD Mini-Dev" as either the 500-instance SELECT-only subset with external domain hints or the full 780-instance Mini-Dev V2 release across 11 databases.
+     - **SQLForge Pinned Target (`mini_dev_500`):** The primary canonical evaluation target for SQLForge is pinned to the 500-instance SELECT-only subset (`variant = "mini_dev_500"`). This eliminates ambiguity from non-query commands and focuses precisely on dirty data querying and evidence grounding.
+     - **Alternative Support (`mini_dev_780`):** Full adapter and schema support is also provided for the 780-instance Mini-Dev V2 (`variant = "mini_dev_780"`), selectable via configuration.
+   - *Role:* Evaluates robust execution and knowledge grounding on dirty real-world schemas.
 3. **SQLForge Custom Held-Out Benchmark:**
-   - *Provenance:* Authored natively by SQLForge research maintainers.
+   - *Provenance:* Authored natively by SQLForge research maintainers (`subscription_analytics_db`).
    - *License:* Apache 2.0.
    - *Dialect:* SQLite 3.
-   - *Structure:* Approximately 100 questions over an independently designed relational schema.
+   - *Structure:* Approximately 100 questions over an independently designed 6-table relational schema (`customers`, `plans`, `subscriptions`, `invoices`, `transactions`, `support_tickets`).
    - *Role:* Strict out-of-distribution generalization testing on a schema guaranteed absent from open benchmarks.
+
 
 ---
 

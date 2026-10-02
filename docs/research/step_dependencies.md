@@ -50,13 +50,14 @@ graph TD
 * **Deliverables:** Hardened `ExperimentTracker` with path traversal defense, atomic directory reservation, non-destructive anomaly logging, and strict cryptographic verification (`manifest.json`); deterministic fixture dataset (`mock_spider.json`); independent prompt builder; mock model runner; mock evaluator; pipeline orchestrator harness; and CLI subcommand `sqlforge pipeline mock`.
 * **Exit Criteria:** Dry-run and complete offline end-to-end execution of mock pipeline vertical slice; 64 unit/integration tests passing in CI across Ubuntu/Windows.
 
-### Step 3: Dataset Ingestion & Contamination Audit (Next Step)
-* **Status:** Pending
+### Step 3: Dataset Ingestion & Contamination Audit
+* **Status:** Complete (PR #6).
 * **Prerequisites:** Step 2 pipeline harness.
-* **Deliverables:** Spider dataset ingest adapter, BIRD mini-dev adapter, custom held-out schema constructor, n-gram leakage checker, and SHA-256 data manifest.
-* **Exit Criteria:** Zero leakage between train and dev/test partitions; schema disjointness verified mathematically.
+* **Deliverables:** Spider 1.0 adapter, BIRD Mini-Dev adapter with ambiguity resolution (500 SELECT-only vs. 780 Mini-Dev V2), custom held-out schema foundation (`subscription_analytics_db`), cross-partition contamination auditor (`ContaminationAuditor`), runtime isolation guards (`IsolationGuard`), deterministic JSONL serialization and manifest generator, and CLI tooling (`sqlforge data validate`, `sqlforge data audit`, `sqlforge data manifest`).
+* **Exit Criteria:** 90 unit/integration tests passing in CI; verified zero leakage on clean partitions; machine-readable contamination audit reports.
 
-### Step 4: Schema Representation & Few-Shot RAG Pipeline
+### Step 4: Schema Representation & Few-Shot RAG Pipeline (Next Step)
+* **Status:** Pending
 * **Prerequisites:** Step 3 ingested datasets.
 * **Deliverables:** DDL, compact pipe, and JSON schema serializers; BM25 training-example retriever; prompt formatting engine.
 * **Exit Criteria:** Formatted prompts strictly adhere to context limits; retrieval index isolated to training partition.

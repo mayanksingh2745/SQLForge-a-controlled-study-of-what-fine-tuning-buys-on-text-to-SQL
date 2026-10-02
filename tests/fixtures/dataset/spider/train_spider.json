@@ -1,0 +1,23 @@
+[
+  {
+    "db_id": "stadium",
+    "question": "What is the average and maximum capacities for each stadium location?",
+    "query": "SELECT Location, avg(Capacity), max(Capacity) FROM stadium GROUP BY Location;",
+    "query_toks": ["SELECT", "Location", ",", "avg", "(", "Capacity", ")", ",", "max", "(", "Capacity", ")", "FROM", "stadium", "GROUP", "BY", "Location", ";"],
+    "sql": {}
+  },
+  {
+    "db_id": "stadium",
+    "question": "What is the name and capacity of the stadium with the highest capacity?",
+    "query": "SELECT Name, Capacity FROM stadium ORDER BY Capacity DESC LIMIT 1;",
+    "query_toks": ["SELECT", "Name", ",", "Capacity", "FROM", "stadium", "ORDER", "BY", "Capacity", "DESC", "LIMIT", "1", ";"],
+    "sql": {}
+  },
+  {
+    "db_id": "concert_singer",
+    "question": "How many concerts were held in year 2014?",
+    "query": "SELECT count(*) FROM concert WHERE Year = '2014';",
+    "query_toks": ["SELECT", "count", "(", "*", ")", "FROM", "concert", "WHERE", "Year", "=", "'2014'", ";"],
+    "sql": {}
+  }
+]

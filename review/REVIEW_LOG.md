@@ -51,4 +51,22 @@ This log documents the independent reviews, structural integrity audits, and gat
   5. *Documentation Transparency:* Detailed guarantees (structural integrity, bitwise match, schema compliance) vs. non-guarantees (scientific validity, SQL safety, absence of data leakage) documented in docstrings. Updated `step_dependencies.md` to reflect completed Steps 0, 1, and 2.
 * **Verdict:** PASS. All 64 automated unit and integration tests passing. Clean linting and type checking.
 
+### Entry 004: Step 3 Dataset Ingestion & Contamination Audit
+* **Date:** 2026-10-02
+* **Auditor:** Senior ML Research Engineer & Data Governance Reviewer
+* **Base Commit:** `2091251` (Merge of Step 2.1 PR #5)
+* **Branch:** `step-3/dataset-ingestion-audit`
+* **Objective:** Implement typed dataset contracts, provenance tracking, Spider 1.0 adapter, BIRD Mini-Dev adapter, custom held-out benchmark foundation, contamination audit engine, runtime isolation guards, and dataset CLI.
+* **Key Findings & Verified Deliverables:**
+  1. *Dataset Contracts & Provenance:* Implemented typed models (`DatasetProvenance`, `DatasetSplitManifest`, `DatasetManifest`, `ContaminationReport`) capturing upstream source, release version, dialect, license identifiers (CC BY-SA 4.0, CC BY-NC-SA 4.0, Apache-2.0), normalization version, and SHA-256 file checksums.
+  2. *Spider 1.0 Ingestion Adapter:* Ingests `tables.json`, `train_spider.json`, and `dev.json`, extracting `SchemaMetadata`, `TableMetadata`, `ColumnMetadata`, and `ForeignKeyMetadata`. Validates foreign keys, column type alignment, required fields, and detects duplicate IDs.
+  3. *BIRD Mini-Dev Ambiguity Resolution:* Resolved research ambiguity between the 500 SELECT-only subset and the 780-instance Mini-Dev V2 release. Pinned `mini_dev_500` as the primary canonical evaluation target for SQLForge while providing full adapter support for `mini_dev_780`. Preserved natural language evidence, Gold SQL, database schemas, and CC BY-NC-SA 4.0 non-commercial restrictions.
+  4. *Custom Held-Out Benchmark Foundation:* Formulated the `subscription_analytics_db` 6-table relational SaaS schema contract (`customers`, `plans`, `subscriptions`, `invoices`, `transactions`, `support_tickets`). Examples are strictly isolated under `DatasetSplit.HELD_OUT` with Apache-2.0 provenance and documented epistemic boundaries.
+  5. *Contamination Audit & Runtime Isolation:* Implemented `ContaminationAuditor` detecting normalized exact question collisions, exact SQL collisions, configurable word n-gram Jaccard overlap, schema disjointness violations ($D_{\text{train}} \cap D_{\text{eval}} = \emptyset$), and split leakage. Implemented `IsolationGuard` raising `LeakageContaminationError` if evaluation instances enter training or retrieval corpora. Official dev/test splits are preserved without silent alterations.
+  6. *Reproducibility & Tooling:* Added deterministic JSONL serialization, manifest generation, and CLI subcommands `sqlforge data validate`, `sqlforge data audit`, and `sqlforge data manifest`.
+  7. *Offline CI Fixtures:* Created offline fixtures for Spider, BIRD, Custom Held-Out, and deliberate contamination scenarios, enabling fast, 100% offline CI verification without dataset downloads.
+  8. *Scope Restriction Enforcement:* Zero real model downloads, zero API inference, zero fine-tuning, and zero empirical claims made.
+* **Verdict:** PASS. All 90 automated unit and integration tests passing. Clean linting and type checking across Ubuntu and Windows.
+
+
 

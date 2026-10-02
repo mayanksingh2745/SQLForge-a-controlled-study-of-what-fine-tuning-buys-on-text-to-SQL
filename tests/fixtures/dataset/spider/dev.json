@@ -1,0 +1,16 @@
+[
+  {
+    "db_id": "car_1",
+    "question": "What are all the country names and their continents?",
+    "query": "SELECT CountryName, Continent FROM countries;",
+    "query_toks": ["SELECT", "CountryName", ",", "Continent", "FROM", "countries", ";"],
+    "sql": {}
+  },
+  {
+    "db_id": "car_1",
+    "question": "Find the total number of car makers from each country.",
+    "query": "SELECT Country, count(*) FROM car_makers GROUP BY Country;",
+    "query_toks": ["SELECT", "Country", ",", "count", "(", "*", ")", "FROM", "car_makers", "GROUP", "BY", "Country", ";"],
+    "sql": {}
+  }
+]

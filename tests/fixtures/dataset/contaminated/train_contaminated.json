@@ -1,0 +1,34 @@
+[
+  {
+    "id": "leak_001_split",
+    "question": "What is the average capacity of all stadiums?",
+    "db_id": "stadium",
+    "gold_sql": "SELECT avg(Capacity) FROM stadium;",
+    "dataset_name": "spider",
+    "split": "dev"
+  },
+  {
+    "id": "leak_002_schema",
+    "question": "Show car makers in country 1.",
+    "db_id": "car_1",
+    "gold_sql": "SELECT Maker FROM car_makers WHERE CountryId = 1;",
+    "dataset_name": "spider",
+    "split": "train"
+  },
+  {
+    "id": "leak_003_exact_dup",
+    "question": "what are all the country names and their continents?",
+    "db_id": "stadium",
+    "gold_sql": "SELECT Name FROM stadium;",
+    "dataset_name": "spider",
+    "split": "train"
+  },
+  {
+    "id": "leak_004_fuzzy",
+    "question": "Find the total number of car makers from each country today.",
+    "db_id": "stadium",
+    "gold_sql": "SELECT count(*) FROM stadium;",
+    "dataset_name": "spider",
+    "split": "train"
+  }
+]

@@ -1,0 +1,32 @@
+[
+  {
+    "db_id": "financial",
+    "table_names_original": ["account", "client"],
+    "table_names": ["account", "client"],
+    "column_names_original": [
+      [-1, "*"],
+      [0, "account_id"],
+      [0, "district_id"],
+      [0, "frequency"],
+      [0, "date"],
+      [1, "client_id"],
+      [1, "gender"],
+      [1, "birth_date"],
+      [1, "district_id"]
+    ],
+    "column_names": [
+      [-1, "*"],
+      [0, "account id"],
+      [0, "district id"],
+      [0, "frequency"],
+      [0, "date"],
+      [1, "client id"],
+      [1, "gender"],
+      [1, "birth date"],
+      [1, "district id"]
+    ],
+    "column_types": ["text", "number", "number", "text", "time", "number", "text", "time", "number"],
+    "primary_keys": [1, 5],
+    "foreign_keys": []
+  }
+]
