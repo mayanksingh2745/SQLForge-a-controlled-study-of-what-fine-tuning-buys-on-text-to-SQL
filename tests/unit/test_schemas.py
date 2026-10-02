@@ -189,4 +189,4 @@ def test_experiment_config_validation() -> None:
 def test_schema_metadata_missing_field_raises() -> None:
     """Ensure missing required field raises ValidationError."""
     with pytest.raises(ValidationError):
-        ColumnMetadata(name="col")  # missing data_type
+        ColumnMetadata(name="col")  # type: ignore[call-arg]

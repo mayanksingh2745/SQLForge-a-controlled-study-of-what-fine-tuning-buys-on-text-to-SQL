@@ -49,13 +49,19 @@ The project has completed **Step 3: Dataset Ingestion & Contamination Audit** (S
 * **Contamination Auditing & Runtime Isolation Guards:**
   - `ContaminationAuditor` detecting normalized exact question collisions, exact SQL collisions, configurable word $n$-gram Jaccard lexical overlap, schema disjointness violations ($D_{\text{train}} \cap D_{\text{eval}} = \emptyset$), and split leakage without silently altering official benchmark dev/test splits.
   - `IsolationGuard` asserting that training datasets and retrieval demonstration indexes contain strictly training instances with zero evaluation data or quarantined evaluation schemas.
-* **Developer Tooling & CLI:** `sqlforge env` diagnostics, `sqlforge config validate`, `sqlforge experiment init`, `sqlforge pipeline mock`, `sqlforge data validate`, `sqlforge data audit`, and `sqlforge data manifest`.
+* **Schema Representation & Few-Shot RAG Pipeline:**
+  - **DDL Serializer:** Generates standard SQLite `CREATE TABLE` statements with primary keys, single and composite foreign keys, identifier escaping, deterministic ordering, and optional sample rows and inline comments.
+  - **Compact Pipe Serializer:** Formats schemas into token-efficient pipe-delimited strings (`table : col (TYPE, PK) | col (TYPE, FK)`).
+  - **JSON Schema Serializer:** Formats structured, machine-readable JSON schema definitions.
+  - **Training-Only BM25 Retriever:** In-memory Okapi BM25 retriever indexed strictly over training-partition questions, enforcing `IsolationGuard.assert_retrieval_isolation()` to reject evaluation and held-out instances, with deterministic tie-breaking and traceable `DemonstrationRecord` audit logs.
+  - **Prompt Assembly Engine:** `PromptEngine` supporting zero-shot and few-shot configurations ($k \in \{0, 1, 3, 5\}$), BIRD external domain evidence integration, and graceful context budget enforcement (pruning demonstrations and DDL comments before raising `PromptBudgetExceededError`).
+* **Developer Tooling & CLI:** `sqlforge env` diagnostics, `sqlforge config validate`, `sqlforge experiment init`, `sqlforge pipeline mock`, `sqlforge data validate`, `sqlforge data audit`, `sqlforge data manifest`, `sqlforge prompt serialize`, and `sqlforge prompt assemble`.
 * **Reproducibility Foundation:** Seed management (`set_seed`), platform auditing, Git working tree dirty-status verification, `requirements-constraints.txt`, and 100% offline test fixtures (`tests/fixtures/dataset/`).
-* **Automated Test Suite:** 90 automated unit and integration tests passing 100% locally and in CI across Ubuntu and Windows.
+* **Automated Test Suite:** 117 automated unit and integration tests passing 100% locally and in CI across Ubuntu and Windows.
 
 ### Specified but Not Yet Implemented
 * **Research Specifications:** Hypotheses with TOST equivalence margins, baseline tiers B0–B3/T1–T3, dataset governance protocols, and 10-experiment staged matrix in [`docs/research/`](docs/research/).
-* **Prompt Assembly & Retrieval:** DDL/compact schema formatters and BM25/dense training-set retriever (scheduled for Step 4).
+* **Frontier API Reference & Zero-Shot Baselines:** Standardized reference model evaluation and zero-shot baseline execution (scheduled for Step 5).
 * **Database Execution Engine:** Read-only SQLite connection sandboxing (`mode=ro`), 10.0s query timeout watchdogs, and memory limits (scheduled for Step 9).
 * **Model Training & Evaluation Harness:** Real LoRA/QLoRA trainer (Step 6) and multiset execution comparator (Step 9/10).
 * **Quantization & Serving Benchmarks:** AWQ/GGUF exports and vLLM high-concurrency benchmarks (Step 11).
@@ -259,8 +265,8 @@ Generated SQL is untrusted code. SQLForge establishes strict multi-layer boundar
 - [x] **Step 1: Research Specification & Experimental Design** ([docs/research/](docs/research/))
 - [x] **Step 2: Repository Implementation Review & Core Pipeline Harness**
 - [x] **Step 3: Dataset Ingestion & Contamination Audit (Spider, BIRD, Custom Held-Out)**
-- [ ] **Step 4: Schema Representation & Few-Shot RAG Pipeline (Next Step)**
-- [ ] **Step 5: Frontier API Reference & Zero-Shot Baselines**
+- [x] **Step 4: Schema Representation & Few-Shot RAG Pipeline**
+- [ ] **Step 5: Frontier API Reference & Zero-Shot Baselines (Next Step)**
 - [ ] **Step 6: Supervised Fine-Tuning Setup (LoRA vs QLoRA)**
 - [ ] **Step 7: LoRA Hyperparameter & Rank Scaling Sweeps**
 - [ ] **Step 8: Training Data Scaling & Synthetic vs. Human Data**

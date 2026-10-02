@@ -1,19 +1,39 @@
-"""Prompting layer: Schema serialization, prompt templates, and few-shot retrieval.
+"""Prompting layer: Schema serialization, prompt templates, few-shot retrieval, and engine.
 
-Planned for future steps:
-- Serializers for DDL, compact schema strings, and markdown table notations.
-- Dynamic few-shot demonstration selectors (BM25, embedding semantic search).
-- Chat template formatters for instruction-tuned LLMs.
+Exports:
+- SchemaSerializer, DDLSerializer, CompactPipeSerializer, JSONSchemaSerializer, get_serializer
+- BM25Retriever, DemonstrationRecord
+- PromptEngine, AssembledPrompt, PromptBudgetExceededError, estimate_token_count
+- PromptBuilder (foundational baseline builder)
 """
 
-from typing import Protocol
+from sqlforge.prompting.builder import PromptBuilder
+from sqlforge.prompting.engine import (
+    AssembledPrompt,
+    PromptBudgetExceededError,
+    PromptEngine,
+    estimate_token_count,
+)
+from sqlforge.prompting.retriever import BM25Retriever, DemonstrationRecord
+from sqlforge.prompting.serializers import (
+    CompactPipeSerializer,
+    DDLSerializer,
+    JSONSchemaSerializer,
+    SchemaSerializer,
+    get_serializer,
+)
 
-from sqlforge.schemas.metadata import SchemaMetadata
-
-
-class SchemaSerializer(Protocol):
-    """Protocol for converting SchemaMetadata into LLM prompt text."""
-
-    def serialize(self, schema: SchemaMetadata) -> str:
-        """Format schema metadata into serialized prompt representation."""
-        ...
+__all__ = [
+    "AssembledPrompt",
+    "BM25Retriever",
+    "CompactPipeSerializer",
+    "DDLSerializer",
+    "DemonstrationRecord",
+    "JSONSchemaSerializer",
+    "PromptBudgetExceededError",
+    "PromptBuilder",
+    "PromptEngine",
+    "SchemaSerializer",
+    "estimate_token_count",
+    "get_serializer",
+]
