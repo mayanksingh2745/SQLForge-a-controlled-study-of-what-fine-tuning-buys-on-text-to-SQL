@@ -1,5 +1,6 @@
 """Unit tests for the local-first experiment tracker."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -235,7 +236,10 @@ def test_tracker_verify_run_strict_vs_lenient(temp_artifact_dir: Path) -> None:
     assert lenient_res["missing_manifest"] is True
 
     # Log metrics before completing, as completed runs require metrics.json
-    tracker.log_metrics(meta.run_id, {"total_examples": 1, "exact_match_accuracy": 1.0})
+    tracker.log_metrics(
+        meta.run_id,
+        {"total_examples": 1, "exact_match_accuracy": 1.0, "execution_accuracy": 1.0},
+    )
 
     # Finish run cleanly
     tracker.finish_run(meta.run_id, status="completed")
@@ -261,3 +265,146 @@ def test_tracker_verify_run_strict_vs_lenient(temp_artifact_dir: Path) -> None:
     corrupt_res = tracker.verify_run(meta.run_id, strict=True)
     assert corrupt_res["verified"] is False
     assert any("generations.jsonl" in err for err in corrupt_res["errors"])
+
+
+def test_tracker_verify_manifest_path_containment_and_traversal(
+    temp_artifact_dir: Path,
+) -> None:
+    """Verify that manifest entries with path traversal, absolute paths, or escaping paths fail verification."""
+    tracker = ExperimentTracker(base_artifact_dir=temp_artifact_dir)
+    meta = tracker.init_run(experiment_name="adversarial_manifest_test", config={})
+    tracker.log_metrics(
+        meta.run_id,
+        {"total_examples": 1, "exact_match_accuracy": 1.0, "execution_accuracy": 1.0},
+    )
+    tracker.finish_run(meta.run_id, status="completed")
+
+    run_dir = temp_artifact_dir / meta.run_id
+    manifest_path = run_dir / "manifest.json"
+
+    # Inject adversarial path traversal and absolute path entries
+    adversarial_manifest = {
+        "run_metadata.json": hashlib_sha256(run_dir / "run_metadata.json"),
+        "config.yaml": hashlib_sha256(run_dir / "config.yaml"),
+        "metrics.json": hashlib_sha256(run_dir / "metrics.json"),
+        "../outside_escape.txt": "a" * 64,
+        "/absolute/root_escape.txt": "b" * 64,
+        "nested/../../traversal.txt": "c" * 64,
+        "\\windows_root_escape.txt": "d" * 64,
+    }
+    manifest_path.write_text(json.dumps(adversarial_manifest, indent=2), encoding="utf-8")
+
+    res = tracker.verify_run(meta.run_id, strict=True)
+    assert res["verified"] is False
+    assert any("is an invalid or traversal path" in err for err in res["errors"])
+
+
+def test_tracker_verify_manifest_malformed_hashes(temp_artifact_dir: Path) -> None:
+    """Verify that malformed, non-hex, or wrong-length SHA-256 values in manifest fail verification."""
+    tracker = ExperimentTracker(base_artifact_dir=temp_artifact_dir)
+    meta = tracker.init_run(experiment_name="malformed_hash_test", config={})
+    tracker.log_metrics(
+        meta.run_id,
+        {"total_examples": 1, "exact_match_accuracy": 1.0, "execution_accuracy": 1.0},
+    )
+    tracker.finish_run(meta.run_id, status="completed")
+
+    run_dir = temp_artifact_dir / meta.run_id
+    manifest_path = run_dir / "manifest.json"
+
+    malformed_manifest = {
+        "run_metadata.json": "not_64_hex_chars",
+        "config.yaml": "z" * 64,  # 'z' is not valid hex
+        "metrics.json": 12345678,  # not a string
+    }
+    manifest_path.write_text(json.dumps(malformed_manifest, indent=2), encoding="utf-8")
+
+    res = tracker.verify_run(meta.run_id, strict=True)
+    assert res["verified"] is False
+    assert any("Malformed SHA-256 hash" in err for err in res["errors"])
+
+
+def test_tracker_verify_nested_legitimate_artifacts(temp_artifact_dir: Path) -> None:
+    """Verify that legitimate nested artifact directories are tracked and verified correctly."""
+    tracker = ExperimentTracker(base_artifact_dir=temp_artifact_dir)
+    meta = tracker.init_run(experiment_name="nested_artifact_test", config={})
+    tracker.log_metrics(
+        meta.run_id,
+        {"total_examples": 1, "exact_match_accuracy": 1.0, "execution_accuracy": 1.0},
+    )
+
+    run_dir = temp_artifact_dir / meta.run_id
+    nested_dir = run_dir / "checkpoints" / "step_100"
+    nested_dir.mkdir(parents=True, exist_ok=True)
+    nested_file = nested_dir / "adapter_config.json"
+    nested_file.write_text('{"lora_r": 16}', encoding="utf-8")
+
+    # Complete run, which will compute manifest across all files including nested
+    tracker.finish_run(meta.run_id, status="completed")
+
+    res = tracker.verify_run(meta.run_id, strict=True)
+    assert res["verified"] is True
+    assert len(res["missing_files"]) == 0
+    assert len(res["hash_mismatches"]) == 0
+    assert len(res["untracked_files"]) == 0
+
+
+def test_tracker_verify_artifact_schemas_and_failed_runs(
+    temp_artifact_dir: Path,
+) -> None:
+    """Verify artifact schema validation (metrics.json, eval_anomalies.json) and failed run rules."""
+    tracker = ExperimentTracker(base_artifact_dir=temp_artifact_dir)
+
+    # 1. Failed run without metrics.json: valid failure state
+    meta_failed = tracker.init_run(experiment_name="failed_run_test", config={})
+    tracker.log_anomaly(
+        meta_failed.run_id,
+        {"error_code": "PIPELINE_ERROR", "reason": "Simulated component crash"},
+    )
+    tracker.finish_run(meta_failed.run_id, status="failed")
+
+    failed_res = tracker.verify_run(meta_failed.run_id, strict=True)
+    # A cleanly recorded failed run has manifest, valid metadata, valid config, and valid anomalies
+    assert failed_res["verified"] is True
+    assert failed_res["status"] == "failed"
+    assert "metrics.json" not in failed_res["missing_files"]
+
+    # 2. Corrupt metrics.json schema (e.g. invalid bounds or missing required total_examples)
+    meta_bad_metrics = tracker.init_run(experiment_name="bad_metrics_test", config={})
+    run_dir = temp_artifact_dir / meta_bad_metrics.run_id
+    bad_metrics_file = run_dir / "metrics.json"
+    bad_metrics_file.write_text(
+        json.dumps({"invalid_field": "no_total_examples"}), encoding="utf-8"
+    )
+    tracker.finish_run(meta_bad_metrics.run_id, status="completed")
+
+    bad_metrics_res = tracker.verify_run(meta_bad_metrics.run_id, strict=True)
+    assert bad_metrics_res["verified"] is False
+    assert any("Invalid metrics.json" in err for err in bad_metrics_res["errors"])
+
+    # 3. Corrupt eval_anomalies.json structure (not a list)
+    meta_bad_anomalies = tracker.init_run(experiment_name="bad_anomalies_test", config={})
+    tracker.log_metrics(
+        meta_bad_anomalies.run_id,
+        {"total_examples": 1, "exact_match_accuracy": 1.0, "execution_accuracy": 1.0},
+    )
+    run_dir_anom = temp_artifact_dir / meta_bad_anomalies.run_id
+    (run_dir_anom / "eval_anomalies.json").write_text(
+        json.dumps({"should_be": "a_list"}), encoding="utf-8"
+    )
+    tracker.finish_run(meta_bad_anomalies.run_id, status="completed")
+
+    bad_anom_res = tracker.verify_run(meta_bad_anomalies.run_id, strict=True)
+    assert bad_anom_res["verified"] is False
+    assert any("Invalid eval_anomalies.json" in err for err in bad_anom_res["errors"])
+
+
+def hashlib_sha256(path: Path) -> str:
+    """Helper to compute sha256 hex string."""
+    import hashlib
+
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()

@@ -24,8 +24,9 @@ graph TD
     S11 --> S12["Step 12: Error Taxonomy Analysis & Final Synthesis"]
 
     style S0 fill:#2d6a4f,stroke:#1b4332,color:#ffffff
-    style S1 fill:#52b788,stroke:#2d6a4f,color:#000000
-    style S2 fill:#1d3557,stroke:#457b9d,color:#ffffff
+    style S1 fill:#2d6a4f,stroke:#1b4332,color:#ffffff
+    style S2 fill:#2d6a4f,stroke:#1b4332,color:#ffffff
+    style S3 fill:#1d3557,stroke:#457b9d,color:#ffffff
 ```
 
 ---
@@ -37,18 +38,20 @@ graph TD
 * **Deliverables:** Package layout (`src/sqlforge/`), typed schemas, YAML configs, CLI tooling, PR/issue templates, ADRs 001–004.
 * **Exit Criteria:** Package installable, CLI functioning, 26 unit/integration tests passing in CI.
 
-### Step 1: Research Specification & Experimental Design (Current Step)
-* **Status:** Active (Branch `docs/research-specification`).
+### Step 1: Research Specification & Experimental Design
+* **Status:** Complete (Merged via PR #2; remediated via PR #3).
 * **Prerequisites:** Step 0 repository foundation.
-* **Deliverables:** `docs/research/` specification suite (hypotheses, baseline protocol, dataset protocol, experiment matrix, metrics & statistics, error taxonomy, compute plan, experiment record spec, step dependencies).
+* **Deliverables:** `docs/research/` specification suite (hypotheses with TOST equivalence bounds, baseline protocol, dataset governance protocol, complete 10-experiment matrix, metrics & statistics, error taxonomy, compute plan, experiment record spec, step dependencies).
 * **Exit Criteria:** All 9 research documents complete, internally consistent, peer-reviewed, and merged via PR.
 
 ### Step 2: Repository Implementation Review & Core Pipeline Harness
+* **Status:** Complete (Merged via PR #4; hardened via Step 2.1).
 * **Prerequisites:** Step 1 research specification.
-* **Deliverables:** Core pipeline interfaces, schema validation harness, mock dataset runner, local diagnostic smoke tests ensuring all contracts in `src/sqlforge/` are experiment-ready.
-* **Exit Criteria:** Dry-run end-to-end execution of a dummy example through prompt assembly, mock model, and mock evaluation.
+* **Deliverables:** Hardened `ExperimentTracker` with path traversal defense, atomic directory reservation, non-destructive anomaly logging, and strict cryptographic verification (`manifest.json`); deterministic fixture dataset (`mock_spider.json`); independent prompt builder; mock model runner; mock evaluator; pipeline orchestrator harness; and CLI subcommand `sqlforge pipeline mock`.
+* **Exit Criteria:** Dry-run and complete offline end-to-end execution of mock pipeline vertical slice; 64 unit/integration tests passing in CI across Ubuntu/Windows.
 
-### Step 3: Dataset Ingestion & Contamination Audit
+### Step 3: Dataset Ingestion & Contamination Audit (Next Step)
+* **Status:** Pending
 * **Prerequisites:** Step 2 pipeline harness.
 * **Deliverables:** Spider dataset ingest adapter, BIRD mini-dev adapter, custom held-out schema constructor, n-gram leakage checker, and SHA-256 data manifest.
 * **Exit Criteria:** Zero leakage between train and dev/test partitions; schema disjointness verified mathematically.

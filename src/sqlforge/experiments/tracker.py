@@ -21,6 +21,9 @@ from sqlforge.schemas.experiments import HardwareMetadata, RunMetadata
 RUN_ID_REGEX = re.compile(r"^[a-zA-Z0-9_\-]+$")
 MAX_RUN_ID_LENGTH = 128
 
+# Standard SHA-256 checksum format: 64 hexadecimal characters
+SHA256_HEX_REGEX = re.compile(r"^[a-fA-F0-9]{64}$")
+
 
 def validate_run_id(run_id: str) -> str:
     """Validate that a run identifier satisfies conservative naming rules.
@@ -272,6 +275,7 @@ class ExperimentTracker:
         """Compute SHA-256 hashes of all run artifacts and persist manifest.json.
 
         Manifest self-excludes itself from hashing to avoid circularity.
+        Symlinks resolving outside the run directory are strictly ignored.
 
         Args:
             run_id: Target experiment run ID.
@@ -283,10 +287,17 @@ class ExperimentTracker:
         if not run_dir.exists():
             raise FileNotFoundError(f"Run directory not found: {run_dir}")
 
+        run_dir_resolved = run_dir.resolve()
         manifest: dict[str, str] = {}
         for file_path in sorted(run_dir.rglob("*")):
             # Self-exclusion: manifest.json is explicitly excluded from the manifest itself
             if file_path.is_file() and file_path.name != "manifest.json":
+                # Do not follow symlinks pointing outside run_dir
+                try:
+                    resolved = file_path.resolve()
+                    resolved.relative_to(run_dir_resolved)
+                except (ValueError, RuntimeError):
+                    continue
                 rel_path = file_path.relative_to(run_dir).as_posix()
                 hasher = hashlib.sha256()
                 with open(file_path, "rb") as f:
@@ -301,11 +312,25 @@ class ExperimentTracker:
         return manifest_file
 
     def verify_run(self, run_id: str, strict: bool = True) -> dict[str, Any]:
-        """Verify the structural integrity, completeness, and hash provenance of a run.
+        """Verify the structural integrity, completeness, artifact schemas, and hash provenance of a run.
 
-        Note:
-            SHA-256 verification establishes file integrity relative to recorded checksums;
-            it does not certify methodological validity or scientific correctness.
+        What verification GUARANTEES:
+            - Structural presence of mandatory files per run lifecycle status (run_metadata.json,
+              config.yaml, manifest.json, and metrics.json for completed runs).
+            - Strict path containment: run artifacts and manifest paths must not escape the run directory
+              (no path traversal '../', absolute paths, Windows drive paths, or symlinks escaping the directory root).
+            - Syntax and schema conformance for all structured artifacts: valid Pydantic RunMetadata,
+              valid YAML configuration, valid Pydantic EvaluationMetrics, line-by-line valid JSONL
+              generation records, and valid JSON array anomaly logs.
+            - Bitwise integrity: all tracked files exactly match the recorded SHA-256 hashes in manifest.json.
+            - Completeness: no untracked/unhashed rogue files exist in the run directory.
+
+        What cryptographic hashes and verification DO NOT guarantee:
+            - Scientific or methodological validity of experimental results.
+            - Correctness, safety, or semantic validity of generated SQL queries.
+            - Absence of train/test data contamination, schema memorization, or prompt leakage.
+            - Reproducibility across differing GPU hardware, driver versions, or nondeterministic kernels.
+            - Authenticity against malicious out-of-band replacement of both files and the manifest together.
 
         Args:
             run_id: Target experiment run ID.
@@ -332,10 +357,11 @@ class ExperimentTracker:
                 "errors": [f"Run directory does not exist: {run_dir}"],
             }
 
-        missing_required = []
-        errors = []
-        hash_mismatches = []
-        untracked_files = []
+        run_dir_resolved = run_dir.resolve()
+        missing_required: list[str] = []
+        errors: list[str] = []
+        hash_mismatches: list[str] = []
+        untracked_files: list[str] = []
 
         # 1. Essential file presence
         for req in ["run_metadata.json", "config.yaml"]:
@@ -343,7 +369,7 @@ class ExperimentTracker:
                 missing_required.append(req)
 
         # 2. Metadata validation
-        metadata = None
+        metadata: RunMetadata | None = None
         if (run_dir / "run_metadata.json").exists():
             try:
                 with open(run_dir / "run_metadata.json", encoding="utf-8") as f:
@@ -352,11 +378,42 @@ class ExperimentTracker:
             except (json.JSONDecodeError, ValidationError) as exc:
                 errors.append(f"Invalid run_metadata.json: {exc}")
 
-        # Check completed run requirements
+        # Check status-specific required files
         if metadata and metadata.status == "completed" and not (run_dir / "metrics.json").exists():
             missing_required.append("metrics.json")
+        # For failed or aborted runs, run_metadata.json and config.yaml are the primary requirements.
 
-        # 3. YAML config validity
+        # 3. Structure validation for metrics.json
+        metrics_file = run_dir / "metrics.json"
+        if metrics_file.exists():
+            try:
+                with open(metrics_file, encoding="utf-8") as f:
+                    metrics_raw = json.load(f)
+                if not isinstance(metrics_raw, dict):
+                    errors.append("Invalid metrics.json: root structure must be a JSON object")
+                else:
+                    EvaluationMetrics(**metrics_raw)
+            except (json.JSONDecodeError, ValidationError, ValueError) as exc:
+                errors.append(f"Invalid metrics.json: {exc}")
+
+        # 4. Structure validation for eval_anomalies.json
+        anomalies_file = run_dir / "eval_anomalies.json"
+        if anomalies_file.exists():
+            try:
+                with open(anomalies_file, encoding="utf-8") as f:
+                    anomalies_raw = json.load(f)
+                if not isinstance(anomalies_raw, list):
+                    errors.append("Invalid eval_anomalies.json: root structure must be a JSON list")
+                else:
+                    for a_idx, anomaly in enumerate(anomalies_raw):
+                        if not isinstance(anomaly, dict):
+                            errors.append(
+                                f"Invalid anomaly record at index {a_idx} in eval_anomalies.json: item must be a dictionary"
+                            )
+            except json.JSONDecodeError as exc:
+                errors.append(f"Invalid eval_anomalies.json: {exc}")
+
+        # 5. YAML config validity
         if (run_dir / "config.yaml").exists():
             try:
                 with open(run_dir / "config.yaml", encoding="utf-8") as f:
@@ -364,7 +421,7 @@ class ExperimentTracker:
             except Exception as exc:
                 errors.append(f"Invalid config.yaml: {exc}")
 
-        # 4. JSONL generation records validity
+        # 6. JSONL generation records validity
         if (run_dir / "generations.jsonl").exists():
             try:
                 with open(run_dir / "generations.jsonl", encoding="utf-8") as f:
@@ -379,7 +436,7 @@ class ExperimentTracker:
             except Exception as exc:
                 errors.append(f"Failed to read generations.jsonl: {exc}")
 
-        # 5. Manifest presence and integrity
+        # 7. Manifest presence, path containment, and hash integrity
         manifest_file = run_dir / "manifest.json"
         if not manifest_file.exists():
             if strict:
@@ -392,12 +449,61 @@ class ExperimentTracker:
                 if not isinstance(expected_hashes, dict):
                     errors.append("Malformed manifest.json: root structure must be a JSON object")
                 else:
-                    # Check that files in manifest match recorded hashes
+                    # Validate and check each entry in the manifest
                     for rel_path, expected_hash in expected_hashes.items():
+                        # Validate path string
+                        if not isinstance(rel_path, str) or not rel_path.strip():
+                            errors.append(
+                                f"Malformed manifest entry: path key must be a non-empty string, got {rel_path!r}"
+                            )
+                            continue
+
+                        # Check for traversal, absolute paths, or drive prefixes before filesystem access
+                        p = Path(rel_path)
+                        if (
+                            p.is_absolute()
+                            or p.drive != ""
+                            or ".." in p.parts
+                            or rel_path.startswith(("/", "\\"))
+                        ):
+                            errors.append(
+                                f"Security violation: manifest entry '{rel_path}' is an invalid or traversal path."
+                            )
+                            continue
+
+                        # Validate SHA-256 hash string format
+                        if not isinstance(expected_hash, str) or not SHA256_HEX_REGEX.match(
+                            expected_hash
+                        ):
+                            errors.append(
+                                f"Malformed SHA-256 hash for manifest entry '{rel_path}': "
+                                f"expected 64 hexadecimal characters, got {expected_hash!r}"
+                            )
+                            continue
+
                         target = run_dir / rel_path
+
+                        # Strict path containment and symlink safety check
+                        try:
+                            resolved_target = target.resolve()
+                            resolved_target.relative_to(run_dir_resolved)
+                            if target.is_symlink():
+                                # Target symlink must not point outside run_dir
+                                target.readlink()
+                        except (ValueError, RuntimeError, OSError):
+                            errors.append(
+                                f"Security violation: manifest entry '{rel_path}' resolves outside run directory."
+                            )
+                            continue
+
                         if not target.exists():
                             missing_required.append(rel_path)
                             continue
+
+                        if not target.is_file():
+                            errors.append(f"Manifest target '{rel_path}' is not a regular file.")
+                            continue
+
                         hasher = hashlib.sha256()
                         with open(target, "rb") as f:
                             for chunk in iter(lambda: f.read(65536), b""):
@@ -408,6 +514,13 @@ class ExperimentTracker:
                     # Check for unexpected/untracked files in run_dir
                     for file_path in run_dir.rglob("*"):
                         if file_path.is_file() and file_path.name != "manifest.json":
+                            try:
+                                file_path.resolve().relative_to(run_dir_resolved)
+                            except (ValueError, RuntimeError):
+                                errors.append(
+                                    f"Security violation: file '{file_path.name}' resolves outside run directory."
+                                )
+                                continue
                             rel_posix = file_path.relative_to(run_dir).as_posix()
                             if rel_posix not in expected_hashes:
                                 untracked_files.append(rel_posix)
