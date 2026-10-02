@@ -1,0 +1,53 @@
+# Dataset Catalog & Partition Configurations
+datasets:
+  spider:
+    name: "Spider"
+    version: "1.0"
+    source_url: "https://yale-lily.github.io/spider"
+    dialect: "sqlite"
+    splits:
+      train:
+        file_path: "data/processed/spider_train.jsonl"
+        num_examples: 7000
+      dev:
+        file_path: "data/processed/spider_dev.jsonl"
+        num_examples: 1034
+    schema_dir: "data/raw/spider/database"
+    has_foreign_keys: true
+    difficulty_levels: ["easy", "medium", "hard", "extra"]
+
+  bird_mini:
+    name: "BIRD (Benchmark for Large-scale Database Grounded Text-to-SQL)"
+    version: "1.0-subset"
+    source_url: "https://bird-bench.github.io/"
+    dialect: "sqlite"
+    splits:
+      dev:
+        file_path: "data/processed/bird_mini_dev.jsonl"
+        num_examples: 500
+    schema_dir: "data/raw/bird/database"
+    has_foreign_keys: true
+    evidence_included: true
+
+  held_out_custom:
+    name: "SQLForge-Custom-HeldOut"
+    version: "1.0"
+    dialect: "sqlite"
+    splits:
+      test:
+        file_path: "data/processed/custom_held_out.jsonl"
+        num_examples: 150
+    schema_dir: "data/raw/custom_db"
+    description: "Independently designed e-commerce analytics schema with temporal & recursive queries"
+
+schema_representations:
+  default_format: "ddl"
+  formats:
+    ddl:
+      include_comments: true
+      include_sample_rows: 3
+    compact:
+      delimiter: "|"
+      include_types: true
+    json:
+      indent: 2

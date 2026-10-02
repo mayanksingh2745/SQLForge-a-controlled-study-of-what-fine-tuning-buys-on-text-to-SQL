@@ -2,40 +2,68 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
 
 # Distribution / packaging
-build/
 dist/
+build/
 *.egg-info/
+.eggs/
 
-# Virtual environments
-.env
-.venv
-env/
+# Environments
+.venv/
 venv/
+ENV/
+env/
+env.bak/
+venv.bak/
 
-# Pytest
+# Testing & Linting
 .pytest_cache/
 .coverage
 htmlcov/
+.mypy_cache/
+.ruff_cache/
 
-# Data files (too large for git)
-data/raw/
-data/processed/
-*.sav
+# Experiment artifacts, checkpoints, and models (DO NOT COMMIT)
+artifacts/runs/*
+!artifacts/runs/.gitkeep
+artifacts/checkpoints/*
+!artifacts/checkpoints/.gitkeep
+models/checkpoints/*
+!models/checkpoints/.gitkeep
+models/weights/*
+!models/weights/.gitkeep
 
-# MLflow
+# Datasets (DO NOT COMMIT RAW OR LARGE DATASETS)
+data/raw/*
+!data/raw/.gitkeep
+data/interim/*
+!data/interim/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+
+# Generated reports & figures
+reports/figures/*
+!reports/figures/.gitkeep
+
+# Experiment tracking services
+wandb/
+.wandb/
 mlruns/
-mlartifacts/
 
-# Models
-models/
-*.pkl
-*.model
-*.joblib
+# Environment variables & secrets (NEVER COMMIT SECRETS)
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
 
-# IDEs
+# IDE & Editor files
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
+.DS_Store
+Thumbs.db

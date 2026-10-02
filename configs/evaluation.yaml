@@ -1,0 +1,41 @@
+# Evaluation & Metrics Configuration
+metrics:
+  execution_accuracy:
+    enabled: true
+    order_sensitive: false
+    float_tolerance: 1e-4
+    null_matches_null: true
+  exact_match:
+    enabled: true
+    normalize_case: true
+    strip_comments: true
+  valid_sql_rate:
+    enabled: true
+  latency:
+    enabled: true
+    percentiles: [50, 90, 95, 99]
+  bootstrap_ci:
+    enabled: true
+    confidence_level: 0.95
+    iterations: 1000
+    random_seed: 42
+
+execution_sandbox:
+  engine: "sqlite"
+  isolation_mode: "read_only"
+  query_timeout_seconds: 10.0
+  max_rows_evaluated: 5000
+  memory_limit_mb: 1024
+
+error_classification:
+  enabled: true
+  categories:
+    - "syntax_error"
+    - "schema_unknown_table"
+    - "schema_unknown_column"
+    - "join_condition_error"
+    - "aggregation_mismatch"
+    - "null_handling_error"
+    - "order_limit_error"
+    - "timeout"
+    - "empty_result"

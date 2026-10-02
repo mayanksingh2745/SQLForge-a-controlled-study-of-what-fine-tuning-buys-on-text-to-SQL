@@ -1,0 +1,32 @@
+# System and Execution Defaults for SQLForge
+project_name: "SQLForge"
+version: "0.1.0"
+seed: 42
+
+logging:
+  level: "INFO"
+  format: "rich"  # Options: rich, json, text
+  log_to_file: true
+  log_dir: "artifacts/runs/logs"
+
+tracking:
+  provider: "local"  # Options: local, wandb
+  artifact_dir: "artifacts/runs"
+  wandb_project: "sqlforge-controlled-study"
+  wandb_entity: null
+  save_generations: true
+
+execution_safety:
+  enforce_read_only: true
+  single_statement_only: true
+  timeout_seconds: 10.0
+  max_memory_mb: 1024
+  max_row_limit: 5000
+  allowed_dialects:
+    - "sqlite"
+    - "postgresql"
+
+reproducibility:
+  deterministic_torch: false
+  record_environment: true
+  hash_configs: true

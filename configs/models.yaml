@@ -1,0 +1,86 @@
+# Model Architectures, Fine-Tuning & Quantization Configurations
+models:
+  qwen25_coder_1_5b:
+    model_id: "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+    family: "qwen"
+    context_window: 8192
+    default_dtype: "bfloat16"
+    recommended_gpu_vram_gb: 8
+    target_modules:
+      - "q_proj"
+      - "k_proj"
+      - "v_proj"
+      - "o_proj"
+      - "gate_proj"
+      - "up_proj"
+      - "down_proj"
+    lora:
+      rank: 16
+      alpha: 32
+      dropout: 0.05
+    qlora:
+      bits: 4
+      quant_type: "nf4"
+      use_double_quant: true
+      compute_dtype: "bfloat16"
+
+  qwen25_coder_7b:
+    model_id: "Qwen/Qwen2.5-Coder-7B-Instruct"
+    family: "qwen"
+    context_window: 8192
+    default_dtype: "bfloat16"
+    recommended_gpu_vram_gb: 16
+    target_modules:
+      - "q_proj"
+      - "k_proj"
+      - "v_proj"
+      - "o_proj"
+      - "gate_proj"
+      - "up_proj"
+      - "down_proj"
+    lora:
+      rank: 16
+      alpha: 32
+      dropout: 0.05
+    qlora:
+      bits: 4
+      quant_type: "nf4"
+      use_double_quant: true
+      compute_dtype: "bfloat16"
+
+  llama31_8b:
+    model_id: "meta-llama/Llama-3.1-8B-Instruct"
+    family: "llama"
+    context_window: 8192
+    default_dtype: "bfloat16"
+    recommended_gpu_vram_gb: 16
+    target_modules:
+      - "q_proj"
+      - "k_proj"
+      - "v_proj"
+      - "o_proj"
+      - "gate_proj"
+      - "up_proj"
+      - "down_proj"
+    lora:
+      rank: 16
+      alpha: 32
+      dropout: 0.05
+
+  frontier_api_ref:
+    model_id: "gpt-4o-mini-2024-07-18"
+    family: "openai"
+    provider: "openai"
+    context_window: 128000
+    is_api: true
+
+generation_defaults:
+  max_new_tokens: 512
+  temperature: 0.0
+  top_p: 1.0
+  repetition_penalty: 1.0
+  stop_tokens:
+    - ";"
+    - "```"
+    - "<|im_end|>"
+    - "<|eot_id|>"

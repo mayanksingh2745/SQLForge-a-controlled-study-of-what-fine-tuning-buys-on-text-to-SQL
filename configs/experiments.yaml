@@ -1,0 +1,72 @@
+# Experiment Matrix for Controlled Study of Fine-Tuning on Text-to-SQL
+experiments:
+  exp01_zeroshot_baselines:
+    description: "Zero-shot prompting across base open-weight models and frontier reference"
+    paradigm: "zero-shot"
+    models:
+      - "qwen25_coder_1_5b"
+      - "qwen25_coder_7b"
+      - "frontier_api_ref"
+    datasets:
+      - "spider:dev"
+      - "bird_mini:dev"
+      - "held_out_custom:test"
+    schema_format: "ddl"
+
+  exp02_fewshot_retrieval:
+    description: "Few-shot in-context learning with BM25 vs dense semantic example retrieval"
+    paradigm: "few-shot"
+    k_shots: [1, 3, 5]
+    retriever: "bm25"
+    models:
+      - "qwen25_coder_7b"
+      - "frontier_api_ref"
+    datasets:
+      - "spider:dev"
+    schema_format: "ddl"
+
+  exp03_lora_vs_qlora:
+    description: "Controlled comparison of full precision LoRA (16-bit) vs QLoRA (4-bit NF4)"
+    paradigm: "fine-tuning"
+    methods:
+      - "lora"
+      - "qlora"
+    base_model: "qwen25_coder_7b"
+    train_dataset: "spider:train"
+    eval_datasets:
+      - "spider:dev"
+      - "held_out_custom:test"
+    training:
+      epochs: 3
+      batch_size: 16
+      gradient_accumulation_steps: 2
+      learning_rate: 0.0002
+      lr_scheduler: "cosine"
+      warmup_ratio: 0.03
+      weight_decay: 0.01
+
+  exp04_lora_rank_sweep:
+    description: "Impact of LoRA intrinsic dimension rank (r=8, 16, 32, 64) on execution accuracy"
+    paradigm: "fine-tuning"
+    ranks: [8, 16, 32, 64]
+    alphas: [16, 32, 64, 128]
+    base_model: "qwen25_coder_7b"
+    train_dataset: "spider:train"
+    eval_datasets:
+      - "spider:dev"
+
+  exp05_data_scaling_law:
+    description: "Data scaling curve: 10%, 25%, 50%, and 100% of Spider training data"
+    paradigm: "fine-tuning"
+    sample_fractions: [0.10, 0.25, 0.50, 1.00]
+    seeds: [42, 43, 44]
+    base_model: "qwen25_coder_7b"
+
+  exp06_human_vs_synthetic:
+    description: "Controlled study of human-written Spider training data vs execution-filtered synthetic data"
+    paradigm: "fine-tuning"
+    data_sources:
+      - "human_only"
+      - "synthetic_only"
+      - "augmented_50_50"
+    base_model: "qwen25_coder_7b"
