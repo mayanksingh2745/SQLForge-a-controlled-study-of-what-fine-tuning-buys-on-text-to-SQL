@@ -30,7 +30,8 @@ graph TD
     style S4 fill:#2d6a4f,stroke:#1b4332,color:#ffffff
     style S5 fill:#2d6a4f,stroke:#1b4332,color:#ffffff
     style S6 fill:#2d6a4f,stroke:#1b4332,color:#ffffff
-    style S7 fill:#1d3557,stroke:#457b9d,color:#ffffff
+    style S7 fill:#2d6a4f,stroke:#1b4332,color:#ffffff
+    style S8 fill:#1d3557,stroke:#457b9d,color:#ffffff
 ```
 
 ---
@@ -78,13 +79,15 @@ graph TD
 * **Deliverables:** Modular SFT fine-tuning pipeline (`src/sqlforge/training/`) supporting 16-bit LoRA and 4-bit NF4 QLoRA for text-to-SQL tasks (`EXP-03`); hardware-aware preflight safety gates (`PreflightChecker`) auditing CUDA VRAM, host RAM, free disk space ($\ge 3.0$ GB), and dependency availability; split-isolated dataset formatter (`SFTDatasetFormatter`) with strict `DatasetSplit.TRAIN` quarantine; completion-only loss masking engine (`CompletionLossMasker`) with `-100` label masking and severe target truncation protection; PEFT and 4-bit quantization config factory (`PEFTConfigFactory`) with architecture-aware target module defaults and non-fallback quantization error guards; atomic checkpoint manager (`CheckpointManager`) with JSON metadata tracking; evaluation handoff bridge to `LocalHFModelRunner`; and CLI suite (`sqlforge train preflight`, `validate`, `run`, `inspect`).
 * **Exit Criteria:** 209 unit/integration tests passing in CI across Ubuntu/Windows; loss curves, step progression, and VRAM monitored; checkpoints saved cleanly with JSON metadata and without base weight duplication.
 
-### Step 7: LoRA Hyperparameter & Rank Scaling Sweeps (Next Step)
+### Step 7: LoRA Hyperparameter & Rank Scaling Sweeps
+* **Status:** Infrastructure Complete (Empirical Runs Pending Dedicated GPU & Dataset Availability).
 * **Prerequisites:** Step 6 fine-tuning setup.
-* **Deliverables:** Systematic sweep over LoRA ranks $r \in \{8, 16, 32, 64\}$ and target modules (`EXP-04`).
-* **Exit Criteria:** Rank saturation Pareto plot generated; optimal rank identified.
+* **Deliverables:** Typed sweep configuration system (`RankSweepConfig`), deterministic condition generator (`exp04_r{r}_a{alpha}_{tag}_s{seed}`), sweep orchestrator (`LoRARankSweepOrchestrator`) with interrupted-run recovery and collision defense, rank saturation Pareto analysis engine (`RankSaturationPlotter`), anti-fabrication plotting policy (`NoEmpiricalDataError`), publication-quality SVG generator and CSV exporter, and CLI suite (`sqlforge sweep plan`, `validate`, `run`, `status`, `plot`).
+* **Exit Criteria (Infrastructure):** 230 unit/integration tests passing in CI across Ubuntu/Windows; dry-run and mock sweep orchestration verified; Pareto curve generation validated on genuine evaluation fixtures; strict refusal to plot from unevaluated or fabricated numbers.
+* **Exit Criteria (Empirical Experiment):** Requires dedicated GPU instance ($\ge 16\text{ GB}$ VRAM, ~8 GPU hours) and full Spider train/dev dataset; rank saturation Pareto curve plotted with 95% bootstrap CIs; optimal rank identified.
 
-### Step 8: Training Data Scaling & Synthetic vs. Human Data
-* **Prerequisites:** Step 7 optimal configuration.
+### Step 8: Training Data Scaling & Synthetic vs. Human Data (Next Step)
+* **Prerequisites:** Step 7 sweep infrastructure and optimal rank configuration.
 * **Deliverables:** Sample scaling runs ($N \in \{500, 1000, 2000, 5000, 7000\}$) across 3 seeds (`EXP-05`); synthetic data comparison (`EXP-06`).
 * **Exit Criteria:** Empirical scaling laws fitted; sample efficiency comparison documented.
 

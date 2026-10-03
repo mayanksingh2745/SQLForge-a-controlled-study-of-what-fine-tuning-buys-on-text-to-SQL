@@ -257,10 +257,22 @@ class SFTTrainingConfig(BaseModel):
         if self.lora.target_modules:
             return list(self.lora.target_modules)
         family = self.model_family.lower()
-        return DEFAULT_TARGET_MODULES_MAP.get(family, DEFAULT_TARGET_MODULES_MAP["default"])
+        return list(DEFAULT_TARGET_MODULES_MAP.get(family, DEFAULT_TARGET_MODULES_MAP["default"]))
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize configuration to a clean dictionary."""
         data = self.model_dump(mode="json")
         data["effective_batch_size"] = self.effective_batch_size
         return data
+
+
+def resolve_target_modules(
+    base_model_id: str,
+    target_modules_tag: str = "all-linear",
+) -> list[str]:
+    """Resolve target module list given base model and preset tag ('all-linear' or 'attention-only')."""
+    if target_modules_tag == "attention-only":
+        return ["q_proj", "k_proj", "v_proj", "o_proj"]
+    lower = base_model_id.lower()
+    family = "qwen" if "qwen" in lower else ("llama" if "llama" in lower else "default")
+    return list(DEFAULT_TARGET_MODULES_MAP.get(family, DEFAULT_TARGET_MODULES_MAP["default"]))

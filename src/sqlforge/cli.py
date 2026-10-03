@@ -1542,5 +1542,480 @@ def train_inspect_cmd(checkpoint_dir: Path) -> None:
         raise click.Abort() from None
 
 
+# =====================================================================
+# LoRA Hyperparameter & Rank Scaling Sweep CLI Group (Step 7)
+# =====================================================================
+
+
+@main.group("sweep")
+def sweep_group() -> None:
+    """Systematic LoRA hyperparameter and rank scaling sweeps (EXP-04)."""
+    pass
+
+
+@sweep_group.command("plan")
+@click.option(
+    "--base-model",
+    default="Qwen/Qwen2.5-Coder-7B-Instruct",
+    help="Target base model identifier",
+)
+@click.option(
+    "--method",
+    type=click.Choice(["lora", "qlora"], case_sensitive=False),
+    default="qlora",
+    help="Fine-tuning method ('lora' or 'qlora')",
+)
+@click.option(
+    "--ranks",
+    default="8,16,32,64",
+    help="Comma-separated LoRA rank dimensions",
+)
+@click.option(
+    "--seeds",
+    default="42",
+    help="Comma-separated random seeds",
+)
+@click.option(
+    "--target-modules",
+    default="all-linear",
+    help="Target modules configuration ('all-linear', 'attention-only')",
+)
+@click.option(
+    "--config-file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Optional YAML configuration file",
+)
+def sweep_plan_cmd(
+    base_model: str,
+    method: str,
+    ranks: str,
+    seeds: str,
+    target_modules: str,
+    config_file: Path | None,
+) -> None:
+    """Plan systematic LoRA rank scaling sweep and inspect cached runs."""
+    import yaml
+
+    from sqlforge.training import FineTuningMethod, LoRARankSweepOrchestrator, RankSweepConfig
+
+    try:
+        if config_file is not None:
+            with open(config_file, encoding="utf-8") as f:
+                raw_data = yaml.safe_load(f)
+            exp04_data = raw_data.get("experiments", {}).get("exp04_lora_rank_sweep", raw_data)
+            cfg = RankSweepConfig(
+                experiment_id=exp04_data.get("experiment_id", "EXP-04-RANK-SWEEP"),
+                base_model_id=exp04_data.get("base_model", base_model),
+                ranks=exp04_data.get("ranks", [8, 16, 32, 64]),
+                seeds=exp04_data.get("seeds", [42]),
+                target_modules_configs=[exp04_data.get("target_modules", target_modules)],
+            )
+        else:
+            parsed_ranks = [int(r.strip()) for r in ranks.split(",") if r.strip()]
+            parsed_seeds = [int(s.strip()) for s in seeds.split(",") if s.strip()]
+            cfg = RankSweepConfig(
+                base_model_id=base_model,
+                method=FineTuningMethod(method.lower()),
+                ranks=parsed_ranks,
+                seeds=parsed_seeds,
+                target_modules_configs=[target_modules],
+            )
+
+        orchestrator = LoRARankSweepOrchestrator(cfg)
+        plans = orchestrator.plan_sweep()
+
+        console.print(
+            f"\n[bold cyan]SQLForge LoRA Rank Sweep Plan: {cfg.experiment_id}[/bold cyan]"
+        )
+        console.print("=" * 70)
+        console.print(f"Base Model:     {cfg.base_model_id}")
+        console.print(f"Method:         {cfg.method.value.upper()}")
+        console.print(f"Total Runs:     {len(plans)}")
+
+        table = Table(title="Planned Sweep Runs", show_header=True, header_style="bold magenta")
+        table.add_column("Run ID", width=34)
+        table.add_column("Rank (r)", justify="right", width=9)
+        table.add_column("Alpha", justify="right", width=8)
+        table.add_column("Seed", justify="right", width=6)
+        table.add_column("Modules", width=14)
+        table.add_column("Est. Params", justify="right", width=12)
+        table.add_column("Est. Size", justify="right", width=10)
+        table.add_column("Status", width=10)
+
+        for p in plans:
+            status_str = "[green]CACHED[/green]" if p.is_cached else "[cyan]PLANNED[/cyan]"
+            table.add_row(
+                p.run_id,
+                str(p.rank),
+                str(p.alpha),
+                str(p.seed),
+                p.target_modules_tag,
+                f"{p.estimated_params:,}",
+                f"{p.estimated_size_mb:.1f} MB",
+                status_str,
+            )
+
+        console.print(table)
+    except Exception as exc:
+        console.print(f"[bold red]Failed to plan sweep:[/bold red] {exc}")
+        raise click.Abort() from None
+
+
+@sweep_group.command("validate")
+@click.option(
+    "--base-model",
+    default="Qwen/Qwen2.5-Coder-7B-Instruct",
+    help="Target base model identifier",
+)
+@click.option(
+    "--method",
+    type=click.Choice(["lora", "qlora"], case_sensitive=False),
+    default="qlora",
+    help="Fine-tuning method ('lora' or 'qlora')",
+)
+@click.option(
+    "--ranks",
+    default="8,16,32,64",
+    help="Comma-separated LoRA rank dimensions",
+)
+@click.option(
+    "--seeds",
+    default="42",
+    help="Comma-separated random seeds",
+)
+@click.option(
+    "--target-modules",
+    default="all-linear",
+    help="Target modules configuration",
+)
+def sweep_validate_cmd(
+    base_model: str,
+    method: str,
+    ranks: str,
+    seeds: str,
+    target_modules: str,
+) -> None:
+    """Validate LoRA rank sweep configuration consistency and controls."""
+    from sqlforge.training import FineTuningMethod, RankSweepConfig
+
+    try:
+        parsed_ranks = [int(r.strip()) for r in ranks.split(",") if r.strip()]
+        parsed_seeds = [int(s.strip()) for s in seeds.split(",") if s.strip()]
+        cfg = RankSweepConfig(
+            base_model_id=base_model,
+            method=FineTuningMethod(method.lower()),
+            ranks=parsed_ranks,
+            seeds=parsed_seeds,
+            target_modules_configs=[target_modules],
+        )
+
+        configs = cfg.generate_run_configs()
+
+        console.print("\n[bold green]Sweep Configuration Validated Successfully[/bold green]")
+        console.print("=" * 65)
+
+        table = Table(
+            title="Controlled Invariant Variables", show_header=True, header_style="bold magenta"
+        )
+        table.add_column("Controlled Parameter", style="dim", width=28)
+        table.add_column("Fixed Value")
+
+        table.add_row("Base Model", cfg.base_model_id)
+        table.add_row("Method", cfg.method.value.upper())
+        table.add_row("Epochs", str(cfg.epochs))
+        table.add_row("Per-Device Batch Size", str(cfg.per_device_batch_size))
+        table.add_row("Gradient Accumulation", str(cfg.gradient_accumulation_steps))
+        table.add_row("Learning Rate", str(cfg.learning_rate))
+        table.add_row("LR Scheduler", cfg.lr_scheduler)
+        table.add_row("Max Sequence Length", str(cfg.max_seq_length))
+        table.add_row("Schema Format", cfg.schema_format)
+        table.add_row("Prompt Loss Masking", str(cfg.mask_prompt_loss))
+        table.add_row("Train Dataset", cfg.train_dataset)
+        table.add_row("Eval Dataset", cfg.eval_dataset)
+        table.add_row("Evaluated Ranks", ", ".join(f"r={r}" for r in cfg.ranks))
+        table.add_row("Alpha Rule", f"alpha = round(rank * {cfg.alpha_multiplier})")
+        table.add_row("Seeds", ", ".join(str(s) for s in cfg.seeds))
+        table.add_row("Total Controlled Runs", str(len(configs)))
+
+        console.print(table)
+    except Exception as exc:
+        console.print(f"[bold red]Sweep Configuration Invalid:[/bold red] {exc}")
+        raise click.Abort() from None
+
+
+@sweep_group.command("run")
+@click.option(
+    "--base-model",
+    default="Qwen/Qwen2.5-Coder-7B-Instruct",
+    help="Target base model identifier",
+)
+@click.option(
+    "--method",
+    type=click.Choice(["lora", "qlora"], case_sensitive=False),
+    default="qlora",
+    help="Fine-tuning method ('lora' or 'qlora')",
+)
+@click.option(
+    "--ranks",
+    default="8,16,32,64",
+    help="Comma-separated LoRA rank dimensions",
+)
+@click.option(
+    "--seeds",
+    default="42",
+    help="Comma-separated random seeds",
+)
+@click.option(
+    "--target-modules",
+    default="all-linear",
+    help="Target modules configuration",
+)
+@click.option(
+    "--max-examples",
+    type=int,
+    default=None,
+    help="Cap training examples for quick smoke testing",
+)
+@click.option(
+    "--output-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=Path("artifacts/runs"),
+    help="Directory for individual run artifacts",
+)
+@click.option(
+    "--sweep-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=Path("artifacts/sweeps"),
+    help="Directory for sweep summary manifests",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Execute zero-compute dry run across all sweep conditions",
+)
+@click.option(
+    "--execute",
+    is_flag=True,
+    default=False,
+    help="Explicit confirmation required to launch live model weight training",
+)
+@click.option(
+    "--resume/--no-resume",
+    default=True,
+    help="Resume interrupted sweep, skipping already completed and verified runs",
+)
+@click.option(
+    "--fail-fast",
+    is_flag=True,
+    default=False,
+    help="Halt sweep immediately upon first failure",
+)
+def sweep_run_cmd(
+    base_model: str,
+    method: str,
+    ranks: str,
+    seeds: str,
+    target_modules: str,
+    max_examples: int | None,
+    output_dir: Path,
+    sweep_dir: Path,
+    dry_run: bool,
+    execute: bool,
+    resume: bool,
+    fail_fast: bool,
+) -> None:
+    """Execute systematic LoRA rank scaling sweep."""
+    from sqlforge.training import (
+        FineTuningMethod,
+        LoRARankSweepOrchestrator,
+        PreflightSafetyError,
+        RankSweepConfig,
+    )
+
+    if not dry_run and not execute:
+        console.print(
+            "[bold red]Safety Guard:[/bold red] Live hyperparameter sweeps require explicit confirmation "
+            "via [bold cyan]--execute[/bold cyan] or use [bold cyan]--dry-run[/bold cyan] for zero-compute orchestration."
+        )
+        raise click.Abort()
+
+    try:
+        parsed_ranks = [int(r.strip()) for r in ranks.split(",") if r.strip()]
+        parsed_seeds = [int(s.strip()) for s in seeds.split(",") if s.strip()]
+        cfg = RankSweepConfig(
+            base_model_id=base_model,
+            method=FineTuningMethod(method.lower()),
+            ranks=parsed_ranks,
+            seeds=parsed_seeds,
+            target_modules_configs=[target_modules],
+            max_train_examples=max_examples,
+            output_dir=output_dir,
+            sweep_dir=sweep_dir,
+        )
+
+        orchestrator = LoRARankSweepOrchestrator(cfg)
+
+        console.print(
+            f"\n[bold cyan]SQLForge LoRA Rank Sweep Execution: {cfg.experiment_id}[/bold cyan]"
+        )
+        console.print("=" * 70)
+        console.print(f"Base Model:     {cfg.base_model_id}")
+        console.print(f"Method:         {cfg.method.value.upper()}")
+        console.print(f"Execution Mode: {'DRY RUN' if dry_run else 'LIVE TRAINING'}")
+        console.print(f"Resume Enabled: {resume}")
+
+        summary = orchestrator.run_sweep(
+            dry_run=dry_run,
+            execute=execute,
+            resume=resume,
+            fail_fast=fail_fast,
+        )
+
+        console.print(f"\n[bold green]Sweep Completed: {summary.sweep_id}[/bold green]")
+        console.print("=" * 70)
+        console.print(
+            f"Runs: {summary.completed} completed, {summary.cached} cached, "
+            f"{summary.failed} failed, {summary.skipped} skipped out of {summary.total_planned} planned."
+        )
+
+        table = Table(title="Sweep Results Summary", show_header=True, header_style="bold magenta")
+        table.add_column("Run ID", width=34)
+        table.add_column("Rank", justify="right", width=6)
+        table.add_column("Seed", justify="right", width=6)
+        table.add_column("Status", width=10)
+        table.add_column("Trainable Params", justify="right", width=16)
+        table.add_column("Duration", justify="right", width=10)
+        table.add_column("Loss", justify="right", width=8)
+
+        for r in summary.results:
+            status_style = (
+                "green"
+                if r.status in ("completed", "cached")
+                else ("cyan" if r.status == "dry_run" else "red")
+            )
+            table.add_row(
+                r.run_id,
+                str(r.rank),
+                str(r.seed),
+                f"[{status_style}]{r.status.upper()}[/{status_style}]",
+                f"{r.trainable_parameters:,}",
+                f"{r.duration_seconds:.1f}s",
+                f"{r.final_loss:.4f}" if r.final_loss is not None else "N/A",
+            )
+
+        console.print(table)
+        console.print(
+            f"\nSummary artifact saved to: [dim]{cfg.sweep_dir / summary.sweep_id / 'sweep_summary.json'}[/dim]"
+        )
+    except PreflightSafetyError as err:
+        console.print(f"\n[bold red]Pre-Flight Safety Halt:[/bold red]\n{err}")
+        raise click.Abort() from None
+    except Exception as exc:
+        console.print(f"[bold red]Sweep execution error:[/bold red] {exc}")
+        raise click.Abort() from None
+
+
+@sweep_group.command("status")
+@click.argument("summary_file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+def sweep_status_cmd(summary_file: Path) -> None:
+    """Inspect the status and results of a completed or partial sweep."""
+    from sqlforge.training import SweepSummary
+
+    try:
+        summary = SweepSummary.load_json(summary_file)
+
+        console.print(f"\n[bold cyan]SQLForge Sweep Status: {summary.sweep_id}[/bold cyan]")
+        console.print("=" * 70)
+        console.print(f"Experiment ID: {summary.experiment_id}")
+        console.print(f"Base Model:    {summary.base_model_id}")
+        console.print(f"Method:        {summary.method.upper()}")
+        console.print(f"Created At:    {summary.created_at}")
+        console.print(f"Is Dry Run:    {summary.is_dry_run}")
+        console.print(
+            f"Progress:      {summary.completed + summary.cached} / {summary.total_planned} completed "
+            f"({summary.failed} failed, {summary.skipped} skipped)"
+        )
+
+        table = Table(title="Condition Results", show_header=True, header_style="bold magenta")
+        table.add_column("Run ID", width=34)
+        table.add_column("Rank", justify="right", width=6)
+        table.add_column("Alpha", justify="right", width=6)
+        table.add_column("Seed", justify="right", width=6)
+        table.add_column("Status", width=10)
+        table.add_column("Params", justify="right", width=12)
+        table.add_column("Duration", justify="right", width=10)
+        table.add_column("Loss", justify="right", width=8)
+
+        for r in summary.results:
+            status_style = "green" if r.status in ("completed", "cached") else "yellow"
+            table.add_row(
+                r.run_id,
+                str(r.rank),
+                str(r.alpha),
+                str(r.seed),
+                f"[{status_style}]{r.status.upper()}[/{status_style}]",
+                f"{r.trainable_parameters:,}",
+                f"{r.duration_seconds:.1f}s",
+                f"{r.final_loss:.4f}" if r.final_loss is not None else "N/A",
+            )
+
+        console.print(table)
+    except Exception as exc:
+        console.print(f"[bold red]Failed to load sweep summary:[/bold red] {exc}")
+        raise click.Abort() from None
+
+
+@sweep_group.command("plot")
+@click.option(
+    "--summary-file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    required=True,
+    help="Path to sweep_summary.json artifact",
+)
+@click.option(
+    "--output",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=Path("reports/figures/exp04_rank_saturation_pareto.svg"),
+    help="Destination file for Pareto SVG figure",
+)
+@click.option(
+    "--export-csv",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Optional path to export tabular metrics as CSV",
+)
+def sweep_plot_cmd(
+    summary_file: Path,
+    output: Path,
+    export_csv: Path | None,
+) -> None:
+    """Generate rank-saturation Pareto curve strictly from empirical results."""
+    from sqlforge.training import NoEmpiricalDataError, RankSaturationPlotter, SweepSummary
+
+    try:
+        summary = SweepSummary.load_json(summary_file)
+
+        if export_csv is not None:
+            csv_path = RankSaturationPlotter.export_summary_csv(summary, export_csv)
+            console.print(f"[green]Sweep metrics exported to CSV:[/green] {csv_path}")
+
+        try:
+            plot_path = RankSaturationPlotter.plot_rank_saturation(summary, output_path=output)
+            console.print(
+                f"\n[bold green]Pareto Plot Generated Successfully:[/bold green] {plot_path}"
+            )
+        except NoEmpiricalDataError as data_err:
+            console.print(
+                f"\n[bold yellow]No Empirical Evaluation Data:[/bold yellow]\n{data_err}\n"
+                "[dim]Rank saturation plots require genuine execution accuracy measurements on spider:dev. "
+                "No illustrative or fabricated curves were generated.[/dim]"
+            )
+    except Exception as exc:
+        console.print(f"[bold red]Plotting error:[/bold red] {exc}")
+        raise click.Abort() from None
+
+
 if __name__ == "__main__":
     main()

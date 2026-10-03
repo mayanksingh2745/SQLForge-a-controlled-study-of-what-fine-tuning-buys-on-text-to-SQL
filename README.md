@@ -27,7 +27,7 @@ Commercial frontier models (e.g., GPT-4o, Claude 3.5 Sonnet) achieve strong zero
 
 ## 2. Current Implementation Status & Functional Boundaries
 
-The project has completed **Step 6: Supervised Fine-Tuning Setup (LoRA vs. QLoRA)** (Steps 0 through 6 completed; Step 7 LoRA hyperparameter and rank scaling sweeps is next). Functionality is strictly categorized as follows:
+The project has completed the **Step 7: LoRA Hyperparameter & Rank Scaling Sweeps (EXP-04)** infrastructure (Steps 0 through 7 infrastructure complete; empirical GPU sweeps and Step 8 data scaling are next). Functionality is strictly categorized as follows:
 
 ### Implemented and Tested
 * **Architecture & Packaging:** Clean layout (`src/sqlforge/`, `configs/`, `docs/`, `tests/`), `pyproject.toml` packaging, and 6-job GitHub Actions CI testing Python 3.11, 3.12, 3.13 on Ubuntu and Windows.
@@ -66,12 +66,18 @@ The project has completed **Step 6: Supervised Fine-Tuning Setup (LoRA vs. QLoRA
   - **PEFT & Quantization Adapters:** `PEFTConfigFactory` configuring 16-bit LoRA and 4-bit NF4 QLoRA with architecture-aware target module defaults and non-fallback quantization error guards (`UnsupportedQuantizationPlatformError`).
   - **Checkpoint Management:** `CheckpointManager` providing atomic checkpoint persistence, JSON metadata logging (`checkpoint_metadata.json`), step/epoch tracking, and overwrite prevention.
   - **Evaluation Handoff:** Clean bridge loading fine-tuned adapter checkpoints directly into `LocalHFModelRunner` for evaluation on `spider:dev`.
-* **Developer Tooling & CLI:** `sqlforge env` diagnostics, `sqlforge config validate`, `sqlforge experiment init`, `sqlforge pipeline mock`, `sqlforge data validate/audit/manifest`, `sqlforge prompt serialize/assemble`, `sqlforge baseline run/verify/stats`, and `sqlforge train preflight/validate/run/inspect`.
+* **LoRA Hyperparameter & Rank Scaling Sweeps (EXP-04 Infrastructure):**
+  - **Controlled Sweep Configuration:** `RankSweepConfig` enforcing strict parameter invariance across LoRA ranks $r \in \{8, 16, 32, 64\}$ ($\alpha = 2 \times r$) and target module configurations (`all-linear` vs `attention-only`).
+  - **Deterministic Planning & Recovery:** `LoRARankSweepOrchestrator` generating deterministic run identifiers (`exp04_r{r}_a{alpha}_{tag}_s{seed}`), detecting completed/verified runs, and safely resuming interrupted sweeps.
+  - **Pareto Frontier Analysis:** `RankSaturationPlotter` computing mean execution accuracy, 95% bootstrap confidence intervals across seeds, and determining Pareto-optimal rank-compute configurations.
+  - **Anti-Fabrication Plotting Policy:** `NoEmpiricalDataError` strictly forbidding the generation of illustrative or synthetic Pareto curves when genuine evaluation accuracy metrics are missing.
+* **Developer Tooling & CLI:** `sqlforge env` diagnostics, `sqlforge config validate`, `sqlforge experiment init`, `sqlforge pipeline mock`, `sqlforge data validate/audit/manifest`, `sqlforge prompt serialize/assemble`, `sqlforge baseline run/verify/stats`, `sqlforge train preflight/validate/run/inspect`, and `sqlforge sweep plan/validate/run/status/plot`.
 * **Reproducibility Foundation:** Seed management (`set_seed`), platform auditing, Git working tree dirty-status verification, `requirements-constraints.txt`, and 100% offline test fixtures (`tests/fixtures/dataset/`).
-* **Automated Test Suite:** 209 automated unit and integration tests passing 100% locally and in CI across Ubuntu and Windows.
+* **Automated Test Suite:** 230 automated unit and integration tests passing 100% locally and in CI across Ubuntu and Windows.
 
 ### Specified but Not Yet Implemented
 * **Research Specifications:** Hypotheses with TOST equivalence margins, baseline tiers B0–B3/T1–T3, dataset governance protocols, and 10-experiment staged matrix in [`docs/research/`](docs/research/).
+* **Empirical GPU Rank Sweeps:** Execution of full EXP-04 rank sweeps on cloud GPU instance ($\ge 16$ GB VRAM) using the complete Spider training set.
 * **Database Execution Engine:** Read-only SQLite connection sandboxing (`mode=ro`), 10.0s query timeout watchdogs, and memory limits (scheduled for Step 9).
 * **Quantization & Serving Benchmarks:** AWQ/GGUF exports and vLLM high-concurrency benchmarks (Step 11).
 
@@ -137,10 +143,9 @@ SQLForge/
 │   ├── prompting/                 # Schema serializers, BM25 retriever, and PromptEngine
 │   ├── pipeline/                  # Pipeline harnesses: MockPipelineHarness, BaselinePipelineHarness
 │   ├── evaluation/                # ExecutionComparator, SQLite query sandbox, bootstrap statistics
-│   ├── training/                  # Supervised fine-tuning: preflight, config, data, tokenization, adapters, checkpoints, evaluation handoff
-│   ├── optimization/              # Planned: AWQ/GGUF quantization & latency profiler
-│   ├── serving/                   # Planned: Lightweight vLLM/FastAPI server
-│   └── utils/                     # Environment diagnostics and system helpers
+│   ├── training/                  # SFT infrastructure: preflight, config, adapters, checkpoints, sweeps, plotting
+│   │   ├── sweeps.py              # RankSweepConfig, LoRARankSweepOrchestrator, deterministic run generation
+│   │   └── plotting.py            # RankSaturationPlotter, Pareto analysis, publication SVG export
 ├── tests/                         # Comprehensive test suite (unit & integration)
 │   ├── conftest.py                # Reusable fixtures for schemas and CLI
 │   ├── unit/                      # Fast, isolated unit tests
@@ -262,6 +267,27 @@ sqlforge train run --method lora --base-model Qwen/Qwen2.5-Coder-1.5B-Instruct -
 sqlforge train inspect --run-id sft-lora-qwen-1.5b-exp03
 ```
 
+### LoRA Rank & Hyperparameter Scaling Sweeps (EXP-04)
+
+Orchestrate controlled rank sweeps ($r \in \{8, 16, 32, 64\}$) with deterministic run planning, invariant parameter enforcement, dry runs, and publication-ready Pareto plotting:
+
+```bash
+# Plan deterministic sweep matrix across ranks and seeds with parameter estimates
+sqlforge sweep plan --ranks 8,16,32,64 --seeds 42,43,44
+
+# Validate sweep configuration against schema and target module rules
+sqlforge sweep validate --ranks 8,16,32,64
+
+# Execute dry-run sweep (zero GPU spend, verifies data pipelines and mock artifacts)
+sqlforge sweep run --ranks 8,16,32,64 --seeds 42,43,44 --dry-run
+
+# Inspect sweep progress, completed runs, and manifest integrity
+sqlforge sweep status --sweep-dir artifacts/sweeps/exp04_lora_rank_sweep
+
+# Generate Pareto saturation plot and tabular summary (requires empirical evaluation results)
+sqlforge sweep plot --sweep-dir artifacts/sweeps/exp04_lora_rank_sweep --output-dir reports/figures
+```
+
 ---
 
 ## 5. Development Quality Checks
@@ -310,8 +336,8 @@ Generated SQL is untrusted code. SQLForge establishes strict multi-layer boundar
 - [x] **Step 4: Schema Representation & Few-Shot RAG Pipeline**
 - [x] **Step 5: Frontier API Reference & Zero-Shot Baselines**
 - [x] **Step 6: Supervised Fine-Tuning Setup (LoRA vs QLoRA)** ([docs/research/training_protocol.md](docs/research/training_protocol.md))
-- [ ] **Step 7: LoRA Hyperparameter & Rank Scaling Sweeps (Next Step)**
-- [ ] **Step 8: Training Data Scaling & Synthetic vs. Human Data**
+- [x] **Step 7: LoRA Hyperparameter & Rank Scaling Sweeps (Infrastructure Complete; Empirical GPU Sweeps Pending)** ([docs/research/sweep_protocol.md](docs/research/sweep_protocol.md))
+- [ ] **Step 8: Training Data Scaling & Synthetic vs. Human Data (Next Step)**
 - [ ] **Step 9: Hardened Database Execution Engine & Normalizer**
 - [ ] **Step 10: Quantitative Evaluation & Statistical Bootstrap CIs**
 - [ ] **Step 11: Quantization & Serving Latency Profiling (vLLM vs HF)**
