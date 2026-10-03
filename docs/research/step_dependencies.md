@@ -27,7 +27,10 @@ graph TD
     style S1 fill:#2d6a4f,stroke:#1b4332,color:#ffffff
     style S2 fill:#2d6a4f,stroke:#1b4332,color:#ffffff
     style S3 fill:#2d6a4f,stroke:#1b4332,color:#ffffff
-    style S4 fill:#1d3557,stroke:#457b9d,color:#ffffff
+    style S4 fill:#2d6a4f,stroke:#1b4332,color:#ffffff
+    style S5 fill:#2d6a4f,stroke:#1b4332,color:#ffffff
+    style S6 fill:#2d6a4f,stroke:#1b4332,color:#ffffff
+    style S7 fill:#1d3557,stroke:#457b9d,color:#ffffff
 ```
 
 ---
@@ -69,12 +72,13 @@ graph TD
 * **Deliverables:** Typed model-runner interfaces for local causal LMs (`LocalHFModelRunner`) with lazy-loaded dependencies and commercial frontier models (`OpenAIRunner`) with rate-limiting, bounded exponential backoff, hard cumulative budget ceiling (<= $50.00 USD), secret redaction, and token-based cost accounting; SQL sandboxing with read-only SQLite connections, query timeout watchdogs, multiset row comparator, and ORDER BY sequence sensitivity (`ExecutionComparator`); statistical bootstrap engine (`compute_bootstrap_ci`, `compute_paired_difference_ci`, `mcnemar_test`); baseline orchestration pipeline harness (`BaselinePipelineHarness`) supporting EXP-01 zero-shot and three-shot BM25 baselines; CLI workflow (`sqlforge baseline run`, `sqlforge baseline verify`, `sqlforge baseline stats`).
 * **Exit Criteria:** 166 unit/integration tests passing in CI; verified zero leakage on retrieval index; dry-run and offline evaluation pipelines verified with cryptographic manifests.
 
-### Step 6: Supervised Fine-Tuning Setup (LoRA vs. QLoRA) (Next Step)
+### Step 6: Supervised Fine-Tuning Setup (LoRA vs. QLoRA)
+* **Status:** Complete.
 * **Prerequisites:** Step 5 baselines.
-* **Deliverables:** SFT fine-tuning pipeline with Hugging Face PEFT; 16-bit LoRA and 4-bit NF4 QLoRA execution on Spider train (`EXP-03`).
-* **Exit Criteria:** Loss curves recorded, VRAM allocated monitored, checkpoints saved cleanly without base weight duplication.
+* **Deliverables:** Modular SFT fine-tuning pipeline (`src/sqlforge/training/`) supporting 16-bit LoRA and 4-bit NF4 QLoRA for text-to-SQL tasks (`EXP-03`); hardware-aware preflight safety gates (`PreflightChecker`) auditing CUDA VRAM, host RAM, free disk space ($\ge 3.0$ GB), and dependency availability; split-isolated dataset formatter (`SFTDatasetFormatter`) with strict `DatasetSplit.TRAIN` quarantine; completion-only loss masking engine (`CompletionLossMasker`) with `-100` label masking and severe target truncation protection; PEFT and 4-bit quantization config factory (`PEFTConfigFactory`) with architecture-aware target module defaults and non-fallback quantization error guards; atomic checkpoint manager (`CheckpointManager`) with JSON metadata tracking; evaluation handoff bridge to `LocalHFModelRunner`; and CLI suite (`sqlforge train preflight`, `validate`, `run`, `inspect`).
+* **Exit Criteria:** 209 unit/integration tests passing in CI across Ubuntu/Windows; loss curves, step progression, and VRAM monitored; checkpoints saved cleanly with JSON metadata and without base weight duplication.
 
-### Step 7: LoRA Hyperparameter & Rank Scaling Sweeps
+### Step 7: LoRA Hyperparameter & Rank Scaling Sweeps (Next Step)
 * **Prerequisites:** Step 6 fine-tuning setup.
 * **Deliverables:** Systematic sweep over LoRA ranks $r \in \{8, 16, 32, 64\}$ and target modules (`EXP-04`).
 * **Exit Criteria:** Rank saturation Pareto plot generated; optimal rank identified.

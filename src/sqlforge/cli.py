@@ -1113,5 +1113,434 @@ def baseline_stats_cmd(run_id_a: str, run_id_b: str | None, artifact_dir: Path) 
         console.print(table)
 
 
+# =====================================================================
+# SFT Training Workflow CLI Group (Step 6)
+# =====================================================================
+
+
+@main.group("train")
+def train_group() -> None:
+    """Supervised fine-tuning infrastructure for LoRA and QLoRA."""
+    pass
+
+
+@train_group.command("preflight")
+@click.option(
+    "--method",
+    type=click.Choice(["lora", "qlora"], case_sensitive=False),
+    default="lora",
+    help="Target fine-tuning method",
+)
+@click.option(
+    "--base-model",
+    default="Qwen/Qwen2.5-Coder-7B-Instruct",
+    help="Target base model identifier",
+)
+@click.option(
+    "--check-dataset/--no-check-dataset",
+    default=True,
+    help="Verify training dataset availability",
+)
+def train_preflight_cmd(method: str, base_model: str, check_dataset: bool) -> None:
+    """Check hardware feasibility, VRAM, RAM, disk, and dependencies."""
+    from sqlforge.training import FineTuningMethod, PreflightChecker, SFTTrainingConfig
+
+    ft_method = FineTuningMethod(method.lower())
+    config = SFTTrainingConfig(method=ft_method, base_model_id=base_model)
+    checker = PreflightChecker(config)
+    report = checker.run_preflight(check_dataset=check_dataset)
+
+    console.print(
+        f"\n[bold cyan]SQLForge SFT Pre-Flight Feasibility Check ({method.upper()})[/bold cyan]"
+    )
+    console.print("=" * 65)
+
+    status_color = (
+        "green"
+        if report.status.value == "ready"
+        else ("yellow" if report.status.value == "warning" else "red")
+    )
+    console.print(
+        f"Overall Status: [{status_color} bold]{report.status.value.upper()}[/{status_color} bold]"
+    )
+    console.print(f"Platform:       {report.platform} (Python {report.python_version})")
+    console.print(
+        f"CUDA Available: {'Yes (' + str(report.device_count) + ' device(s))' if report.cuda_available else 'No (CPU only)'}"
+    )
+    if report.device_names:
+        console.print(f"GPU Devices:    {', '.join(report.device_names)}")
+    console.print(
+        f"Total VRAM:     {report.total_vram_gb:.1f} GB (Free: {report.free_vram_gb:.1f} GB)"
+    )
+    console.print(
+        f"Host RAM:       {report.free_ram_gb:.1f} GB free / {report.total_ram_gb:.1f} GB total"
+    )
+    console.print(f"Target Disk:    {report.free_disk_gb:.1f} GB free")
+
+    table = Table(title="Diagnostic Checks", show_header=True, header_style="bold magenta")
+    table.add_column("Category", width=14)
+    table.add_column("Check Name", width=24)
+    table.add_column("Status", width=10)
+    table.add_column("Details")
+
+    for c in report.checks:
+        status_str = (
+            "[green]PASS[/green]"
+            if c.passed
+            else f"[{'red' if c.level == 'error' else 'yellow'}]{c.level.upper()}[/]"
+        )
+        table.add_row(c.category.capitalize(), c.name, status_str, c.message)
+
+    console.print("\n", table)
+
+    if report.blockers:
+        console.print("\n[bold red]Blocking Issues:[/bold red]")
+        for b in report.blockers:
+            console.print(f"  [red]x[/red] {b}")
+
+    if report.warnings:
+        console.print("\n[bold yellow]Warnings:[/bold yellow]")
+        for w in report.warnings:
+            console.print(f"  [yellow]![/yellow] {w}")
+
+    if report.recommendations:
+        console.print("\n[bold cyan]Actionable Recommendations:[/bold cyan]")
+        for r in report.recommendations:
+            console.print(f"  -> {r}")
+
+    if not report.is_runnable:
+        console.print(
+            "\n[dim yellow]Note: Hardware is insufficient for live GPU training on this host. Use --dry-run or remote GPU.[/dim yellow]"
+        )
+
+
+@train_group.command("validate")
+@click.option(
+    "--method",
+    type=click.Choice(["lora", "qlora"], case_sensitive=False),
+    default="lora",
+    help="Target fine-tuning method",
+)
+@click.option(
+    "--base-model",
+    default="Qwen/Qwen2.5-Coder-7B-Instruct",
+    help="Target base model identifier",
+)
+@click.option(
+    "--rank",
+    type=int,
+    default=16,
+    help="LoRA rank dimension r",
+)
+@click.option(
+    "--alpha",
+    type=int,
+    default=32,
+    help="LoRA alpha scaling factor",
+)
+@click.option(
+    "--epochs",
+    type=int,
+    default=3,
+    help="Training epochs",
+)
+@click.option(
+    "--batch-size",
+    type=int,
+    default=8,
+    help="Per-device batch size",
+)
+@click.option(
+    "--learning-rate",
+    type=float,
+    default=2e-4,
+    help="Peak learning rate",
+)
+@click.option(
+    "--config-file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Path to YAML training configuration file",
+)
+def train_validate_cmd(
+    method: str,
+    base_model: str,
+    rank: int,
+    alpha: int,
+    epochs: int,
+    batch_size: int,
+    learning_rate: float,
+    config_file: Path | None,
+) -> None:
+    """Validate SFT training configuration parameters and settings."""
+    import yaml
+
+    from sqlforge.schemas.models import LoRAHyperparameters
+    from sqlforge.training import FineTuningMethod, PEFTConfigFactory, SFTTrainingConfig
+
+    try:
+        if config_file is not None:
+            with open(config_file, encoding="utf-8") as f:
+                raw_cfg = yaml.safe_load(f)
+            config = SFTTrainingConfig.model_validate(raw_cfg)
+        else:
+            ft_method = FineTuningMethod(method.lower())
+            lora_params = LoRAHyperparameters(rank=rank, alpha=alpha)
+            config = SFTTrainingConfig(
+                method=ft_method,
+                base_model_id=base_model,
+                lora=lora_params,
+                epochs=epochs,
+                per_device_batch_size=batch_size,
+                learning_rate=learning_rate,
+            )
+
+        summary = PEFTConfigFactory.summarize_adapter_config(config)
+
+        console.print("\n[bold green]Configuration Validated Successfully[/bold green]")
+        console.print("=" * 60)
+
+        table = Table(
+            title="Resolved Training Specification", show_header=True, header_style="bold magenta"
+        )
+        table.add_column("Parameter", style="dim", width=28)
+        table.add_column("Value")
+
+        table.add_row("Experiment ID", config.experiment_id)
+        table.add_row("Base Model", config.base_model_id)
+        table.add_row("Fine-Tuning Method", config.method.value.upper())
+        table.add_row("LoRA Rank (r)", str(config.lora.rank))
+        table.add_row("LoRA Alpha", str(config.lora.alpha))
+        table.add_row("Target Modules", ", ".join(summary.target_modules))
+        table.add_row("Epochs", str(config.epochs))
+        table.add_row("Per-Device Batch Size", str(config.per_device_batch_size))
+        table.add_row("Gradient Accumulation", str(config.gradient_accumulation_steps))
+        table.add_row("Effective Batch Size", str(config.effective_batch_size))
+        table.add_row("Learning Rate", str(config.learning_rate))
+        table.add_row("LR Scheduler", config.lr_scheduler)
+        table.add_row("Mixed Precision", config.mixed_precision)
+        table.add_row("Max Sequence Length", str(config.max_seq_length))
+        table.add_row("Mask Prompt Loss", str(config.mask_prompt_loss))
+        table.add_row("Train Dataset", config.train_dataset)
+        table.add_row("Eval Dataset", config.eval_dataset or "None")
+
+        if config.method == FineTuningMethod.QLORA:
+            table.add_row(
+                "QLoRA Quant Bits", f"{config.qlora.bits}-bit ({config.qlora.quant_type})"
+            )
+            table.add_row("Double Quantization", str(config.qlora.use_double_quant))
+            table.add_row("Compute Dtype", config.qlora.compute_dtype)
+
+        console.print(table)
+    except Exception as exc:
+        console.print(f"[bold red]Configuration Validation Error:[/bold red] {exc}")
+        raise click.Abort() from None
+
+
+@train_group.command("run")
+@click.option(
+    "--method",
+    type=click.Choice(["lora", "qlora"], case_sensitive=False),
+    default="lora",
+    help="Fine-tuning method ('lora' or 'qlora')",
+)
+@click.option(
+    "--base-model",
+    default="Qwen/Qwen2.5-Coder-7B-Instruct",
+    help="Target base model identifier",
+)
+@click.option(
+    "--epochs",
+    type=int,
+    default=3,
+    help="Number of training epochs",
+)
+@click.option(
+    "--batch-size",
+    type=int,
+    default=8,
+    help="Per-device batch size",
+)
+@click.option(
+    "--learning-rate",
+    type=float,
+    default=2e-4,
+    help="Peak learning rate",
+)
+@click.option(
+    "--schema-format",
+    default="ddl",
+    type=click.Choice(["ddl", "compact_pipe", "json"], case_sensitive=False),
+    help="Schema representation format",
+)
+@click.option(
+    "--max-seq-length",
+    type=int,
+    default=2048,
+    help="Maximum token sequence length",
+)
+@click.option(
+    "--max-examples",
+    type=int,
+    default=None,
+    help="Cap training examples for quick smoke tests",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Execute pre-flight, data preparation, and tokenization without training weights",
+)
+@click.option(
+    "--execute",
+    is_flag=True,
+    default=False,
+    help="Explicit confirmation required to launch live model weight training",
+)
+def train_run_cmd(
+    method: str,
+    base_model: str,
+    epochs: int,
+    batch_size: int,
+    learning_rate: float,
+    schema_format: str,
+    max_seq_length: int,
+    max_examples: int | None,
+    dry_run: bool,
+    execute: bool,
+) -> None:
+    """Execute supervised fine-tuning pipeline for LoRA or QLoRA."""
+    from sqlforge.schemas.examples import DatasetSplit, TextToSQLExample
+    from sqlforge.schemas.metadata import ColumnMetadata, SchemaMetadata, TableMetadata
+    from sqlforge.training import (
+        FineTuningMethod,
+        PreflightSafetyError,
+        SFTFineTuningPipeline,
+        SFTTrainingConfig,
+    )
+
+    if not dry_run and not execute:
+        console.print(
+            "[bold red]Safety Guard:[/bold red] Live training requires explicit confirmation via [bold cyan]--execute[/bold cyan] "
+            "or use [bold cyan]--dry-run[/bold cyan] for zero-compute validation."
+        )
+        raise click.Abort()
+
+    ft_method = FineTuningMethod(method.lower())
+    config = SFTTrainingConfig(
+        method=ft_method,
+        base_model_id=base_model,
+        epochs=epochs,
+        per_device_batch_size=batch_size,
+        learning_rate=learning_rate,
+        schema_format=schema_format,
+        max_seq_length=max_seq_length,
+        max_train_examples=max_examples,
+    )
+
+    console.print(
+        f"\n[bold cyan]SQLForge SFT Execution: {method.upper()} on {base_model}[/bold cyan]"
+    )
+    console.print("=" * 65)
+
+    # Prepare minimal synthetic fixture data for dry run or fallback verification
+    toy_schema = SchemaMetadata(
+        db_id="academic",
+        dialect="sqlite",
+        tables=[
+            TableMetadata(
+                table_name="author",
+                columns=[
+                    ColumnMetadata(name="author_id", data_type="INTEGER", is_primary_key=True),
+                    ColumnMetadata(name="name", data_type="TEXT"),
+                ],
+            )
+        ],
+    )
+    schemas = {"academic": toy_schema}
+    examples = [
+        TextToSQLExample(
+            id=f"spider_train_{i:04d}",
+            question=f"List all author names in the database? (example {i})",
+            db_id="academic",
+            gold_sql="SELECT name FROM author;",
+            dataset_name="spider",
+            split=DatasetSplit.TRAIN,
+        )
+        for i in range(1, 11)
+    ]
+
+    pipeline = SFTFineTuningPipeline(config=config)
+
+    try:
+        result = pipeline.run(
+            examples=examples,
+            schemas=schemas,
+            dry_run=dry_run,
+        )
+
+        console.print(f"\n[bold green]Run Completed ({result.status.upper()})[/bold green]")
+        console.print("=" * 60)
+        table = Table(title="Execution Summary", show_header=True, header_style="bold magenta")
+        table.add_column("Property", style="dim", width=28)
+        table.add_column("Value")
+
+        table.add_row("Run ID", result.run_id)
+        table.add_row("Status", result.status)
+        table.add_row("Method", result.method.upper())
+        table.add_row("Final Checkpoint Dir", result.final_checkpoint_dir)
+        table.add_row("Valid Examples Formatted", str(result.data_summary.valid_examples_count))
+        table.add_row("Duration", f"{result.duration_seconds}s")
+        table.add_row("Total Steps", str(result.total_steps))
+        table.add_row("Manifest Verified", str(result.manifest_verified))
+
+        console.print(table)
+    except PreflightSafetyError as err:
+        console.print(f"\n[bold red]Pre-Flight Safety Halt:[/bold red]\n{err}")
+        raise click.Abort() from None
+
+
+@train_group.command("inspect")
+@click.argument("checkpoint_dir", type=click.Path(exists=True, file_okay=False, path_type=Path))
+def train_inspect_cmd(checkpoint_dir: Path) -> None:
+    """Inspect saved checkpoint metadata and training metrics."""
+    from sqlforge.training import CheckpointManager
+
+    try:
+        meta = CheckpointManager.load_metadata(checkpoint_dir)
+
+        console.print(
+            f"\n[bold cyan]Checkpoint Metadata Inspection: {checkpoint_dir.name}[/bold cyan]"
+        )
+        console.print("=" * 65)
+
+        table = Table(title="Checkpoint Details", show_header=True, header_style="bold magenta")
+        table.add_column("Property", style="dim", width=28)
+        table.add_column("Value")
+
+        table.add_row("Run ID", meta.run_id)
+        table.add_row("Step", str(meta.step))
+        table.add_row("Epoch", f"{meta.epoch:.2f}")
+        table.add_row("Base Model", meta.base_model_id)
+        table.add_row("Adapter Method", meta.adapter_summary.method.upper())
+        table.add_row("LoRA Rank (r)", str(meta.adapter_summary.rank))
+        table.add_row("LoRA Alpha", str(meta.adapter_summary.alpha))
+        table.add_row("Target Modules", ", ".join(meta.adapter_summary.target_modules))
+        table.add_row("Git Commit", str(meta.git_commit or "unknown"))
+        table.add_row("Python Version", meta.python_version)
+        table.add_row("Checkpoint Type", meta.checkpoint_type)
+        table.add_row(
+            "Adapter Files", ", ".join(meta.adapter_files) if meta.adapter_files else "None"
+        )
+
+        for k, v in meta.training_metrics.items():
+            table.add_row(f"Metric: {k}", str(v))
+
+        console.print(table)
+    except Exception as exc:
+        console.print(f"[bold red]Failed to load checkpoint metadata:[/bold red] {exc}")
+        raise click.Abort() from None
+
+
 if __name__ == "__main__":
     main()

@@ -27,7 +27,7 @@ Commercial frontier models (e.g., GPT-4o, Claude 3.5 Sonnet) achieve strong zero
 
 ## 2. Current Implementation Status & Functional Boundaries
 
-The project has completed **Step 3: Dataset Ingestion & Contamination Audit** (Steps 0, 1, 2, and 3 completed; Step 4 schema representation and few-shot RAG pipeline is next). Functionality is strictly categorized as follows:
+The project has completed **Step 6: Supervised Fine-Tuning Setup (LoRA vs. QLoRA)** (Steps 0 through 6 completed; Step 7 LoRA hyperparameter and rank scaling sweeps is next). Functionality is strictly categorized as follows:
 
 ### Implemented and Tested
 * **Architecture & Packaging:** Clean layout (`src/sqlforge/`, `configs/`, `docs/`, `tests/`), `pyproject.toml` packaging, and 6-job GitHub Actions CI testing Python 3.11, 3.12, 3.13 on Ubuntu and Windows.
@@ -55,15 +55,24 @@ The project has completed **Step 3: Dataset Ingestion & Contamination Audit** (S
   - **JSON Schema Serializer:** Formats structured, machine-readable JSON schema definitions.
   - **Training-Only BM25 Retriever:** In-memory Okapi BM25 retriever indexed strictly over training-partition questions, enforcing `IsolationGuard.assert_retrieval_isolation()` to reject evaluation and held-out instances, with deterministic tie-breaking and traceable `DemonstrationRecord` audit logs.
   - **Prompt Assembly Engine:** `PromptEngine` supporting zero-shot and few-shot configurations ($k \in \{0, 1, 3, 5\}$), BIRD external domain evidence integration, and graceful context budget enforcement (pruning demonstrations and DDL comments before raising `PromptBudgetExceededError`).
-* **Developer Tooling & CLI:** `sqlforge env` diagnostics, `sqlforge config validate`, `sqlforge experiment init`, `sqlforge pipeline mock`, `sqlforge data validate`, `sqlforge data audit`, `sqlforge data manifest`, `sqlforge prompt serialize`, and `sqlforge prompt assemble`.
+* **Frontier API Reference & Zero-Shot Baselines:**
+  - Model runners for local causal LMs (`LocalHFModelRunner`) and commercial reference APIs (`OpenAIRunner`) with exponential backoff, rate-limiting, hard $50 budget ceilings, and secret redaction.
+  - Read-only SQLite query sandboxing, query timeout monitors, multiset row comparator (`ExecutionComparator`), and bootstrap statistical significance tests (paired difference CIs and McNemar's test).
+  - Baseline orchestration pipeline harness (`BaselinePipelineHarness`) supporting EXP-01 baselines and CLI subcommands (`sqlforge baseline run`, `verify`, `stats`).
+* **Supervised Fine-Tuning Infrastructure (LoRA vs. QLoRA):**
+  - **Preflight Feasibility & Safety Gates:** `PreflightChecker` auditing CUDA VRAM ($\ge 8$ GB LoRA, $\ge 6$ GB QLoRA), host RAM, free disk space ($\ge 3$ GB), and dependencies without downloading model weights.
+  - **Data Formatting & Split Isolation:** `SFTDatasetFormatter` formatting schema DDL, questions, and gold SQL targets, strictly quarantining training data and rejecting `DEV`, `TEST`, or `HELD_OUT` partitions with `DisallowedSplitError`.
+  - **Completion-Only Loss Masking:** `CompletionLossMasker` masking prompt tokens with `IGNORE_INDEX = -100` and enforcing severe target truncation safeguards (`TargetTruncationError`).
+  - **PEFT & Quantization Adapters:** `PEFTConfigFactory` configuring 16-bit LoRA and 4-bit NF4 QLoRA with architecture-aware target module defaults and non-fallback quantization error guards (`UnsupportedQuantizationPlatformError`).
+  - **Checkpoint Management:** `CheckpointManager` providing atomic checkpoint persistence, JSON metadata logging (`checkpoint_metadata.json`), step/epoch tracking, and overwrite prevention.
+  - **Evaluation Handoff:** Clean bridge loading fine-tuned adapter checkpoints directly into `LocalHFModelRunner` for evaluation on `spider:dev`.
+* **Developer Tooling & CLI:** `sqlforge env` diagnostics, `sqlforge config validate`, `sqlforge experiment init`, `sqlforge pipeline mock`, `sqlforge data validate/audit/manifest`, `sqlforge prompt serialize/assemble`, `sqlforge baseline run/verify/stats`, and `sqlforge train preflight/validate/run/inspect`.
 * **Reproducibility Foundation:** Seed management (`set_seed`), platform auditing, Git working tree dirty-status verification, `requirements-constraints.txt`, and 100% offline test fixtures (`tests/fixtures/dataset/`).
-* **Automated Test Suite:** 117 automated unit and integration tests passing 100% locally and in CI across Ubuntu and Windows.
+* **Automated Test Suite:** 209 automated unit and integration tests passing 100% locally and in CI across Ubuntu and Windows.
 
 ### Specified but Not Yet Implemented
 * **Research Specifications:** Hypotheses with TOST equivalence margins, baseline tiers B0–B3/T1–T3, dataset governance protocols, and 10-experiment staged matrix in [`docs/research/`](docs/research/).
-* **Frontier API Reference & Zero-Shot Baselines:** Standardized reference model evaluation and zero-shot baseline execution (scheduled for Step 5).
 * **Database Execution Engine:** Read-only SQLite connection sandboxing (`mode=ro`), 10.0s query timeout watchdogs, and memory limits (scheduled for Step 9).
-* **Model Training & Evaluation Harness:** Real LoRA/QLoRA trainer (Step 6) and multiset execution comparator (Step 9/10).
 * **Quantization & Serving Benchmarks:** AWQ/GGUF exports and vLLM high-concurrency benchmarks (Step 11).
 
 ### Planned
@@ -128,7 +137,7 @@ SQLForge/
 │   ├── prompting/                 # Schema serializers, BM25 retriever, and PromptEngine
 │   ├── pipeline/                  # Pipeline harnesses: MockPipelineHarness, BaselinePipelineHarness
 │   ├── evaluation/                # ExecutionComparator, SQLite query sandbox, bootstrap statistics
-│   ├── training/                  # Planned: LoRA/QLoRA fine-tuning engines
+│   ├── training/                  # Supervised fine-tuning: preflight, config, data, tokenization, adapters, checkpoints, evaluation handoff
 │   ├── optimization/              # Planned: AWQ/GGUF quantization & latency profiler
 │   ├── serving/                   # Planned: Lightweight vLLM/FastAPI server
 │   └── utils/                     # Environment diagnostics and system helpers
@@ -230,6 +239,29 @@ sqlforge baseline verify <RUN_ID>
 sqlforge baseline stats <RUN_A> --compare-to <RUN_B>
 ```
 
+### Supervised Fine-Tuning (LoRA vs. QLoRA)
+
+Execute preflight checks, configuration validation, dry-run training, and safe fine-tuning:
+
+```bash
+# Run hardware and dependency feasibility preflight
+sqlforge train preflight --method lora
+sqlforge train preflight --method qlora
+
+# Validate training configuration
+sqlforge train validate --config configs/experiments.yaml
+
+# Execute zero-compute training dry-run (data formatting, tokenization, mock training)
+sqlforge train run --method lora --dry-run
+sqlforge train run --method qlora --dry-run
+
+# Execute fine-tuning (explicit --execute flag required for compute spend)
+sqlforge train run --method lora --base-model Qwen/Qwen2.5-Coder-1.5B-Instruct --execute
+
+# Inspect saved adapter checkpoints and metadata
+sqlforge train inspect --run-id sft-lora-qwen-1.5b-exp03
+```
+
 ---
 
 ## 5. Development Quality Checks
@@ -277,8 +309,8 @@ Generated SQL is untrusted code. SQLForge establishes strict multi-layer boundar
 - [x] **Step 3: Dataset Ingestion & Contamination Audit (Spider, BIRD, Custom Held-Out)**
 - [x] **Step 4: Schema Representation & Few-Shot RAG Pipeline**
 - [x] **Step 5: Frontier API Reference & Zero-Shot Baselines**
-- [ ] **Step 6: Supervised Fine-Tuning Setup (LoRA vs QLoRA) (Next Step)**
-- [ ] **Step 7: LoRA Hyperparameter & Rank Scaling Sweeps**
+- [x] **Step 6: Supervised Fine-Tuning Setup (LoRA vs QLoRA)** ([docs/research/training_protocol.md](docs/research/training_protocol.md))
+- [ ] **Step 7: LoRA Hyperparameter & Rank Scaling Sweeps (Next Step)**
 - [ ] **Step 8: Training Data Scaling & Synthetic vs. Human Data**
 - [ ] **Step 9: Hardened Database Execution Engine & Normalizer**
 - [ ] **Step 10: Quantitative Evaluation & Statistical Bootstrap CIs**
