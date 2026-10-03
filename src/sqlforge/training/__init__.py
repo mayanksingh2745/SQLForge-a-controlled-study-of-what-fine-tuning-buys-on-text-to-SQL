@@ -30,11 +30,24 @@ from sqlforge.training.evaluation_handoff import (
     prepare_evaluation_runner,
     validate_adapter_checkpoint,
 )
+from sqlforge.training.plotting import (
+    NoEmpiricalDataError,
+    ParetoPoint,
+    RankAggregateMetric,
+    RankSaturationPlotter,
+)
 from sqlforge.training.preflight import (
     PreflightChecker,
     PreflightCheckItem,
     PreflightReport,
     PreflightStatus,
+)
+from sqlforge.training.sweeps import (
+    LoRARankSweepOrchestrator,
+    RankSweepConfig,
+    SweepRunPlan,
+    SweepRunResult,
+    SweepSummary,
 )
 from sqlforge.training.tokenization import (
     CompletionLossMasker,
@@ -65,19 +78,28 @@ __all__ = [
     "DisallowedSplitError",
     "FineTuningEngine",
     "FineTuningMethod",
+    "LoRARankSweepOrchestrator",
     "MalformedExampleError",
     "MissingSchemaError",
+    "NoEmpiricalDataError",
     "PEFTConfigFactory",
+    "ParetoPoint",
     "PreflightCheckItem",
     "PreflightChecker",
     "PreflightReport",
     "PreflightSafetyError",
     "PreflightStatus",
+    "RankAggregateMetric",
+    "RankSaturationPlotter",
+    "RankSweepConfig",
     "SFTDatasetFormatter",
     "SFTExample",
     "SFTFineTuningPipeline",
     "SFTTrainResult",
     "SFTTrainingConfig",
+    "SweepRunPlan",
+    "SweepRunResult",
+    "SweepSummary",
     "TargetTruncationError",
     "TokenizedSFTExample",
     "ToyDeterministicTokenizer",

@@ -30,6 +30,8 @@ artifacts/runs/*
 !artifacts/runs/.gitkeep
 artifacts/checkpoints/*
 !artifacts/checkpoints/.gitkeep
+artifacts/sweeps/*
+!artifacts/sweeps/.gitkeep
 models/checkpoints/*
 !models/checkpoints/.gitkeep
 models/weights/*
