@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from sqlforge.schemas.evaluation import GenerationResult
@@ -26,6 +27,7 @@ class LocalHFModelRunner:
     def __init__(
         self,
         model_id: str = "Qwen/Qwen2.5-Coder-1.5B-Instruct",
+        adapter_path: str | Path | None = None,
         device: str | None = None,
         torch_dtype: str = "bfloat16",
         temperature: float = 0.0,
@@ -35,7 +37,8 @@ class LocalHFModelRunner:
         """Initialize LocalHFModelRunner.
 
         Args:
-            model_id: Hugging Face repository slug or local checkpoint path.
+            model_id: Hugging Face repository slug or local base checkpoint path.
+            adapter_path: Optional path to PEFT adapter checkpoint directory.
             device: Target compute device ('cuda', 'cpu', 'auto').
             torch_dtype: Model tensor precision ('bfloat16', 'float16', 'float32').
             temperature: Sampling temperature (0.0 for deterministic greedy decoding).
@@ -43,6 +46,7 @@ class LocalHFModelRunner:
             inference_fn: Optional mock inference callable for offline verification.
         """
         self._model_id = model_id
+        self.adapter_path = Path(adapter_path) if adapter_path is not None else None
         self.device = device or "auto"
         self.torch_dtype = torch_dtype
         self.temperature = temperature
@@ -54,11 +58,13 @@ class LocalHFModelRunner:
 
     @property
     def model_id(self) -> str:
-        """Hugging Face model repository ID."""
+        """Hugging Face model repository ID (and adapter if loaded)."""
+        if self.adapter_path is not None:
+            return f"{self._model_id}[adapter={self.adapter_path.name}]"
         return self._model_id
 
     def _ensure_loaded(self) -> None:
-        """Lazily load torch, transformers, tokenizer, and model weights."""
+        """Lazily load torch, transformers, tokenizer, model weights, and PEFT adapter."""
         if self._inference_fn is not None:
             return
 
@@ -96,6 +102,19 @@ class LocalHFModelRunner:
             device_map=device_map,
             trust_remote_code=True,
         )
+
+        if self.adapter_path is not None:
+            logger.info(f"Attaching fine-tuned PEFT adapter from '{self.adapter_path}'...")
+            try:
+                from peft import PeftModel
+
+                self._model = PeftModel.from_pretrained(self._model, str(self.adapter_path))
+            except ImportError as exc:
+                raise LocalModelDependencyError(
+                    "Loading PEFT adapter weights requires 'peft'. "
+                    'Install via: pip install -e ".[train]".'
+                ) from exc
+
         self._model.eval()
 
     def generate(
