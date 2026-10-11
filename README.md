@@ -269,23 +269,59 @@ sqlforge train inspect --run-id sft-lora-qwen-1.5b-exp03
 
 ### LoRA Rank & Hyperparameter Scaling Sweeps (EXP-04)
 
-Orchestrate controlled rank sweeps ($r \in \{8, 16, 32, 64\}$) with deterministic run planning, invariant parameter enforcement, dry runs, and publication-ready Pareto plotting:
+Orchestrate controlled rank sweeps ($r \in \{8, 16, 32, 64\}$) with two-stage adaptive seed exploration (exploration on seed 42, replication of top-2 selected ranks on seeds 43 and 44), deterministic run planning, invariant parameter enforcement, dry runs, and publication-ready Pareto plotting:
 
 ```bash
 # Plan deterministic sweep matrix across ranks and seeds with parameter estimates
-sqlforge sweep plan --ranks 8,16,32,64 --seeds 42,43,44
+sqlforge sweep plan --ranks 8,16,32,64 --seeds 42
 
 # Validate sweep configuration against schema and target module rules
 sqlforge sweep validate --ranks 8,16,32,64
 
-# Execute dry-run sweep (zero GPU spend, verifies data pipelines and mock artifacts)
-sqlforge sweep run --ranks 8,16,32,64 --seeds 42,43,44 --dry-run
+# Stage 1: Zero-compute dry run across all 4 ranks on exploration seed 42
+sqlforge sweep run --ranks 8,16,32,64 --seeds 42 --dry-run
+
+# Stage 1: Live GPU exploration across all 4 ranks on seed 42 (requires explicit --execute)
+sqlforge sweep run --ranks 8,16,32,64 --seeds 42 --execute
+
+# Stage 2: Replicate the top-2 selected ranks on seeds 43 and 44 (e.g. ranks 16 and 32)
+sqlforge sweep run --ranks 16,32 --seeds 43,44 --execute
 
 # Inspect sweep progress, completed runs, and manifest integrity
 sqlforge sweep status --sweep-dir artifacts/sweeps/exp04_lora_rank_sweep
 
 # Generate Pareto saturation plot and tabular summary (requires empirical evaluation results)
 sqlforge sweep plot --sweep-dir artifacts/sweeps/exp04_lora_rank_sweep --output-dir reports/figures
+```
+
+### Training Data Scaling & Synthetic vs. Human Infrastructure (EXP-05 & EXP-06)
+
+Orchestrate deterministic data-scaling runs ($N \in \{500, 1000, 2000, 5000, 7000\}$ across 3 seeds for EXP-05, and 3 comparison groups for EXP-06), deterministic fair-share nested stratified sampling, rank-selection dependency checks, 5-stage synthetic data validation, dry runs, and scaling analysis:
+
+```bash
+# Plan deterministic EXP-05 data-scaling matrix (15 conditions)
+sqlforge scaling plan --experiment exp05 --seeds 42,43,44 --sizes 500,1000,2000,5000,7000
+
+# Plan deterministic EXP-06 synthetic vs. human matrix (9 conditions)
+sqlforge scaling plan --experiment exp06 --seeds 42,43,44
+
+# Validate research contracts, rank selection, and dataset provenance
+sqlforge scaling validate --experiment exp05
+
+# Generate deterministic nested stratified Spider training subsets
+sqlforge scaling sample --sizes 500,1000,2000,5000,7000 --seeds 42,43,44
+
+# Execute zero-compute dry run across all scaling conditions
+sqlforge scaling run --experiment exp05 --dry-run
+
+# Execute live GPU training (requires explicit --execute flag and verified empirical rank)
+sqlforge scaling run --experiment exp05 --execute
+
+# Inspect scaling experiment status and run integrity
+sqlforge scaling status --experiment exp05
+
+# Compute scaling law fits and comparative statistics (requires verified empirical results)
+sqlforge scaling analyze --experiment exp05
 ```
 
 ---
@@ -337,8 +373,8 @@ Generated SQL is untrusted code. SQLForge establishes strict multi-layer boundar
 - [x] **Step 5: Frontier API Reference & Zero-Shot Baselines**
 - [x] **Step 6: Supervised Fine-Tuning Setup (LoRA vs QLoRA)** ([docs/research/training_protocol.md](docs/research/training_protocol.md))
 - [x] **Step 7: LoRA Hyperparameter & Rank Scaling Sweeps (Infrastructure Complete; Empirical GPU Sweeps Pending)** ([docs/research/sweep_protocol.md](docs/research/sweep_protocol.md))
-- [ ] **Step 8: Training Data Scaling & Synthetic vs. Human Data (Next Step)**
-- [ ] **Step 9: Hardened Database Execution Engine & Normalizer**
+- [x] **Step 8: Training Data Scaling & Synthetic vs. Human Data (Infrastructure Complete; Empirical GPU Experiments Pending)** ([docs/research/data_scaling_protocol.md](docs/research/data_scaling_protocol.md), [docs/research/synthetic_data_protocol.md](docs/research/synthetic_data_protocol.md))
+- [ ] **Step 9: Hardened Database Execution Engine & Normalizer (Next Step)**
 - [ ] **Step 10: Quantitative Evaluation & Statistical Bootstrap CIs**
 - [ ] **Step 11: Quantization & Serving Latency Profiling (vLLM vs HF)**
 - [ ] **Step 12: Error Taxonomy Analysis & Final Synthesis**
