@@ -102,6 +102,7 @@ This document defines the structured, staged experimental matrix for SQLForge. T
 * **Compute Cost Category:** High (~12 GPU hours total).
 * **Dependencies:** `EXP-04-RANK-SWEEP`.
 * **Repetition Strategy:** 3 random seeds per data scale ($5 \times 3 = 15$ runs).
+* **Implementation Status:** Infrastructure Complete; Empirical GPU Execution Pending.
 * **Completion Criteria:** Log-linear and power-law scaling curve fits reported with $R^2$ goodness-of-fit.
 
 ---
@@ -121,6 +122,7 @@ This document defines the structured, staged experimental matrix for SQLForge. T
 * **Compute Cost Category:** Medium (~6 GPU hours).
 * **Dependencies:** `EXP-05-DATA-SCALING`.
 * **Repetition Strategy:** 3 random seeds ($S \in \{42, 43, 44\}$).
+* **Implementation Status:** Infrastructure Complete; Empirical GPU Execution Pending.
 * **Completion Criteria:** Comparative error distribution and accuracy table completed.
 
 ---

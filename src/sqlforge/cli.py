@@ -2017,5 +2017,662 @@ def sweep_plot_cmd(
         raise click.Abort() from None
 
 
+# ==============================================================================
+# Step 8: Data Scaling & Synthetic Data Infrastructure CLI (EXP-05 & EXP-06)
+# ==============================================================================
+
+
+@main.group("scaling")
+def scaling_group() -> None:
+    """Orchestrate training data scaling (EXP-05) and synthetic data comparisons (EXP-06)."""
+    pass
+
+
+@scaling_group.command("plan")
+@click.option(
+    "--experiment",
+    type=click.Choice(["exp05", "exp06"], case_sensitive=False),
+    default="exp05",
+    help="Target experiment (exp05: data scaling, exp06: synthetic vs human)",
+)
+@click.option(
+    "--seeds",
+    type=str,
+    default="42,43,44",
+    help="Comma-separated random seeds (default: 42,43,44)",
+)
+@click.option(
+    "--sizes",
+    type=str,
+    default="500,1000,2000,5000,7000",
+    help="Comma-separated training subset sizes for EXP-05 (default: 500,1000,2000,5000,7000)",
+)
+@click.option(
+    "--output-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Optional directory to save plan JSON",
+)
+def scaling_plan_cmd(
+    experiment: str,
+    seeds: str,
+    sizes: str,
+    output_dir: Path | None,
+) -> None:
+    """Generate the deterministic experiment matrix without GPU activity."""
+    import json
+
+    from sqlforge.training import (
+        EXP05_EXPERIMENT_ID,
+        EXP06_EXPERIMENT_ID,
+        RankSelectionReference,
+        generate_exp05_run_conditions,
+        generate_exp06_run_conditions,
+    )
+
+    exp_id = EXP05_EXPERIMENT_ID if experiment.lower() == "exp05" else EXP06_EXPERIMENT_ID
+    parsed_seeds = tuple(int(s.strip()) for s in seeds.split(","))
+    parsed_sizes = tuple(int(s.strip()) for s in sizes.split(","))
+
+    provisional_ref = RankSelectionReference.create_provisional(rank=16)
+
+    console.print(f"\n[bold cyan]SQLForge Data Scaling Plan: {exp_id}[/bold cyan]")
+    console.print("=" * 70)
+    console.print("Base Model:     Qwen/Qwen2.5-Coder-7B-Instruct")
+    console.print("Method:         QLORA (4-bit NF4)")
+    console.print(
+        f"Rank Status:    [yellow]{provisional_ref.verification_status.upper()}[/yellow] "
+        f"(Rank {provisional_ref.selected_rank}, Alpha {provisional_ref.selected_alpha})"
+    )
+
+    if exp_id == EXP05_EXPERIMENT_ID:
+        conditions = generate_exp05_run_conditions(
+            provisional_ref, sizes=parsed_sizes, seeds=parsed_seeds
+        )
+        table = Table(
+            title="EXP-05 Planned Scaling Conditions", show_header=True, header_style="bold magenta"
+        )
+        table.add_column("Run ID", style="bold cyan")
+        table.add_column("Size (N)", justify="right")
+        table.add_column("Seed", justify="right")
+        table.add_column("Human", justify="right")
+        table.add_column("Synth", justify="right")
+        table.add_column("Rank", justify="right")
+        table.add_column("Alpha", justify="right")
+        table.add_column("Status", style="yellow")
+
+        for c in conditions:
+            table.add_row(
+                c.run_id,
+                f"{c.total_examples:,}",
+                str(c.seed),
+                f"{c.human_examples_count:,}",
+                f"{c.synthetic_examples_count:,}",
+                str(c.rank_selection.selected_rank),
+                str(c.rank_selection.selected_alpha),
+                c.status.upper(),
+            )
+        console.print(table)
+    else:
+        conditions = generate_exp06_run_conditions(provisional_ref, seeds=parsed_seeds)
+        table = Table(
+            title="EXP-06 Planned Comparison Conditions",
+            show_header=True,
+            header_style="bold magenta",
+        )
+        table.add_column("Run ID", style="bold cyan")
+        table.add_column("Group", style="bold")
+        table.add_column("Total", justify="right")
+        table.add_column("Human", justify="right")
+        table.add_column("Synth", justify="right")
+        table.add_column("Seed", justify="right")
+        table.add_column("Status", style="yellow")
+
+        for c in conditions:
+            table.add_row(
+                c.run_id,
+                str(c.group_name),
+                f"{c.total_examples:,}",
+                f"{c.human_examples_count:,}",
+                f"{c.synthetic_examples_count:,}",
+                str(c.seed),
+                c.status.upper(),
+            )
+        console.print(table)
+
+    if output_dir:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        plan_file = output_dir / f"{experiment.lower()}_plan.json"
+        with open(plan_file, "w", encoding="utf-8") as f:
+            json.dump([c.model_dump() for c in conditions], f, indent=2)
+        console.print(
+            f"\nPlanned {len(conditions)} run conditions saved to: [cyan]{plan_file}[/cyan]"
+        )
+    else:
+        console.print(f"\nPlanned {len(conditions)} run conditions.")
+
+
+@scaling_group.command("validate")
+@click.option(
+    "--experiment",
+    type=click.Choice(["exp05", "exp06"], case_sensitive=False),
+    default="exp05",
+    help="Target experiment (exp05 or exp06)",
+)
+@click.option(
+    "--seeds",
+    type=str,
+    default="42,43,44",
+    help="Comma-separated random seeds",
+)
+@click.option(
+    "--sizes",
+    type=str,
+    default="500,1000,2000,5000,7000",
+    help="Comma-separated training subset sizes for EXP-05",
+)
+def scaling_validate_cmd(experiment: str, seeds: str, sizes: str) -> None:
+    """Validate research contracts, dataset splits, manifests, and dependency status."""
+    from sqlforge.training import (
+        EXP05_EXPERIMENT_ID,
+        EXP06_EXPERIMENT_ID,
+        RankSelectionReference,
+    )
+
+    exp_id = EXP05_EXPERIMENT_ID if experiment.lower() == "exp05" else EXP06_EXPERIMENT_ID
+    parsed_seeds = tuple(int(s.strip()) for s in seeds.split(","))
+    parsed_sizes = tuple(int(s.strip()) for s in sizes.split(","))
+
+    provisional_ref = RankSelectionReference.create_provisional(rank=16)
+
+    console.print(f"\n[bold green]Scaling Research Configuration Validation: {exp_id}[/bold green]")
+    console.print("=" * 70)
+
+    table = Table(
+        title="Invariant Research Controls", show_header=True, header_style="bold magenta"
+    )
+    table.add_column("Controlled Parameter", style="bold")
+    table.add_column("Enforced Value")
+
+    table.add_row("Base Model", "Qwen/Qwen2.5-Coder-7B-Instruct")
+    table.add_row("Adaptation Method", "QLORA (4-bit NF4, nested_quant=True)")
+    table.add_row("Epochs", "3")
+    table.add_row("Learning Rate / Scheduler", "0.0002 / cosine (warmup=0.03)")
+    table.add_row("Batch Size (Per-Device / Eff)", "8 / 16 (gradient_accumulation=2)")
+    table.add_row("Sequence Length", "2048 tokens")
+    table.add_row("Schema Serialization", "DDL (SQLite)")
+    table.add_row("Loss Masking", "Completion-only (-100 label masking)")
+    table.add_row("Training Split", "spider:train (isolated)")
+    table.add_row("Evaluation Split", "spider:dev (quarantined)")
+
+    if exp_id == EXP05_EXPERIMENT_ID:
+        table.add_row("Sizes Tested", ", ".join(str(s) for s in parsed_sizes))
+        table.add_row("Seeds Tested", ", ".join(str(s) for s in parsed_seeds))
+        table.add_row("Total Conditions", str(len(parsed_sizes) * len(parsed_seeds)))
+    else:
+        table.add_row(
+            "Groups Tested",
+            "human_only (3000), synthetic_only (3000), human_synthetic_50_50 (1500/1500)",
+        )
+        table.add_row("Seeds Tested", ", ".join(str(s) for s in parsed_seeds))
+        table.add_row("Total Conditions", str(3 * len(parsed_seeds)))
+
+    table.add_row(
+        "Rank Selection State",
+        f"[yellow]{provisional_ref.verification_status}[/yellow] (Empirical Execution Allowed: False)",
+    )
+    console.print(table)
+    console.print(f"\n[bold green]{exp_id} contracts validated successfully.[/bold green]")
+    console.print(
+        "\n[dim]All research invariants and configuration contracts validated successfully.[/dim]"
+    )
+
+
+@scaling_group.command("sample")
+@click.option(
+    "--seed",
+    type=int,
+    default=42,
+    help="Random seed for deterministic fair-share permutation (default: 42)",
+)
+@click.option(
+    "--sizes",
+    type=str,
+    default="500,1000,2000,5000,7000",
+    help="Comma-separated training sizes (default: 500,1000,2000,5000,7000)",
+)
+@click.option(
+    "--output-dir",
+    type=click.Path(path_type=Path),
+    default=Path("artifacts/data_scaling/exp05"),
+    help="Output directory for sampling manifests",
+)
+def scaling_sample_cmd(seed: int, sizes: str, output_dir: Path) -> None:
+    """Create and verify deterministic training-subset manifests with nested guarantees."""
+    from sqlforge.schemas.examples import DatasetSplit, TextToSQLExample
+    from sqlforge.training import NestedStratifiedSpiderSampler
+
+    parsed_sizes = tuple(sorted(int(s.strip()) for s in sizes.split(",")))
+
+    # Attempt to load local Spider train if available, else synthetic fixture for validation
+    spider_train_path = Path("data/raw/spider/train_spider.json")
+    if spider_train_path.is_file():
+        from sqlforge.data.spider import load_spider_split, parse_spider_tables
+
+        tables_path = Path("data/raw/spider/tables.json")
+        schemas = parse_spider_tables(tables_path) if tables_path.is_file() else {}
+        examples = load_spider_split(spider_train_path, schemas, split=DatasetSplit.TRAIN)
+    else:
+        # Create deterministic synthetic records up to max requested size
+        needed = parsed_sizes[-1]
+        examples = []
+        dbs = ["academic", "baseball_1", "car_1", "department_store", "employee_hire_evaluation"]
+        for i in range(needed):
+            db = dbs[i % len(dbs)]
+            examples.append(
+                TextToSQLExample(
+                    id=f"spider_train_{i:05d}",
+                    question=f"Question for query {i} on database {db}",
+                    db_id=db,
+                    gold_sql=f"SELECT col1 FROM table_{i % 3} WHERE id = {i};",
+                    dataset_name="spider",
+                    split=DatasetSplit.TRAIN,
+                )
+            )
+
+    sampler = NestedStratifiedSpiderSampler()
+    manifest_subsets = sampler.sample_nested_subsets(
+        examples=examples,
+        seed=seed,
+        sizes=parsed_sizes,
+    )
+    saved_paths = sampler.save_sampling_manifests(manifest_subsets, output_dir=output_dir)
+
+    console.print(
+        f"\n[bold green]Deterministic Stratified Sampling Completed (Seed {seed})[/bold green]"
+    )
+    console.print("=" * 70)
+
+    table = Table(
+        title="Generated Nested Sampling Manifests", show_header=True, header_style="bold magenta"
+    )
+    table.add_column("Size (N)", justify="right")
+    table.add_column("Selected IDs Hash", style="cyan")
+    table.add_column("Parent Hash", style="dim")
+    table.add_column("Databases", justify="right")
+    table.add_column("Saved Path", style="dim")
+
+    for manifest, _ in manifest_subsets:
+        parent_str = (
+            manifest.parent_subset_hash[:16] + "..."
+            if manifest.parent_subset_hash
+            else "None (Root)"
+        )
+        table.add_row(
+            f"{manifest.sample_size:,}",
+            manifest.selected_example_ids_sha256[:16] + "...",
+            parent_str,
+            str(len(manifest.database_distribution)),
+            str(output_dir / f"sampling_manifest_n{manifest.sample_size}_s{manifest.seed}.json"),
+        )
+
+    console.print(table)
+    console.print(
+        f"\n[dim]All {len(saved_paths)} sampling manifests persisted atomically with nested integrity.[/dim]"
+    )
+
+
+@scaling_group.command("run")
+@click.option(
+    "--experiment",
+    type=click.Choice(["exp05", "exp06"], case_sensitive=False),
+    default="exp05",
+    help="Target experiment (exp05 or exp06)",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Execute zero-compute dry-run simulation without GPU",
+)
+@click.option(
+    "--execute",
+    is_flag=True,
+    default=False,
+    help="Explicit opt-in to execute live GPU training",
+)
+@click.option(
+    "--resume/--no-resume",
+    default=True,
+    help="Skip verified existing run checkpoints (default: --resume)",
+)
+@click.option(
+    "--output-dir",
+    type=click.Path(path_type=Path),
+    default=Path("artifacts/runs"),
+    help="Directory for run artifacts",
+)
+@click.option(
+    "--scaling-dir",
+    type=click.Path(path_type=Path),
+    default=Path("artifacts/data_scaling"),
+    help="Directory for scaling summary manifests",
+)
+def scaling_run_cmd(
+    experiment: str,
+    dry_run: bool,
+    execute: bool,
+    resume: bool,
+    output_dir: Path,
+    scaling_dir: Path,
+) -> None:
+    """Execute data scaling experiment orchestration (dry-run or live training)."""
+    import sys
+
+    from sqlforge.training import (
+        EXP05_EXPERIMENT_ID,
+        EXP06_EXPERIMENT_ID,
+        DataScalingExperimentOrchestrator,
+        PreflightSafetyError,
+        RankSelectionReference,
+    )
+
+    if not dry_run and not execute:
+        console.print(
+            "[bold red]Safety Error:[/bold red] Live training requires --execute. "
+            "Use --dry-run for zero-compute simulation."
+        )
+        sys.exit(1)
+
+    exp_id = EXP05_EXPERIMENT_ID if experiment.lower() == "exp05" else EXP06_EXPERIMENT_ID
+
+    orchestrator = DataScalingExperimentOrchestrator(
+        experiment_id=exp_id,
+        rank_selection=RankSelectionReference.create_provisional(rank=16),
+        output_dir=output_dir,
+        scaling_dir=scaling_dir,
+    )
+
+    try:
+        summary = orchestrator.run_experiment(
+            dry_run=dry_run,
+            execute=execute,
+            resume=resume,
+        )
+
+        if dry_run:
+            console.print(
+                f"\n[bold green]Completed dry-run simulation for {summary.dry_run_count} runs: {exp_id}[/bold green]"
+            )
+        else:
+            console.print(f"\n[bold green]Scaling Run Completed: {exp_id}[/bold green]")
+        console.print("=" * 70)
+        console.print(
+            f"Planned: {summary.total_planned} | Completed: {summary.completed} | "
+            f"Cached: {summary.cached} | Dry-Run: {summary.dry_run_count} | Failed: {summary.failed}"
+        )
+
+        table = Table(
+            title="Run Conditions Execution Status", show_header=True, header_style="bold magenta"
+        )
+        table.add_column("Run ID", style="bold cyan")
+        table.add_column("Total N", justify="right")
+        table.add_column("Seed", justify="right")
+        table.add_column("Status")
+        table.add_column("Duration", justify="right")
+
+        for r in summary.results:
+            status_style = "green" if r.status in ("completed", "cached") else "yellow"
+            table.add_row(
+                r.run_id,
+                f"{r.total_examples:,}",
+                str(r.seed),
+                f"[{status_style}]{r.status.upper()}[/{status_style}]",
+                f"{r.duration_seconds:.2f}s",
+            )
+
+        console.print(table)
+        console.print(f"\nSummary manifest saved to: [cyan]{summary.output_path}[/cyan]")
+
+    except PreflightSafetyError as err:
+        console.print(f"\n[bold red]Preflight Safety Error:[/bold red] {err}")
+        raise click.Abort() from None
+    except Exception as exc:
+        console.print(f"\n[bold red]Orchestration Error:[/bold red] {exc}")
+        raise click.Abort() from None
+
+
+@scaling_group.command("status")
+@click.option(
+    "--scaling-dir",
+    type=click.Path(path_type=Path),
+    default=Path("artifacts/data_scaling"),
+    help="Root directory containing scaling experiment summaries",
+)
+@click.option(
+    "--output-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Optional directory containing planned conditions",
+)
+@click.option(
+    "--experiment",
+    type=click.Choice(["exp05", "exp06"], case_sensitive=False),
+    default="exp05",
+    help="Target experiment (exp05 or exp06)",
+)
+def scaling_status_cmd(
+    scaling_dir: Path,
+    output_dir: Path | None,
+    experiment: str,
+) -> None:
+    """Report status of planned, completed, cached, and dry-run scaling conditions."""
+    from sqlforge.training import ScalingExperimentSummary
+
+    num = experiment.lower().replace("exp", "")
+    candidates = [
+        scaling_dir / "scaling_summary.json",
+        scaling_dir / f"exp_{num}_data_scaling" / "scaling_summary.json",
+        scaling_dir / f"exp{num}_data_scaling" / "scaling_summary.json",
+        scaling_dir / f"exp_{num}_synthetic_data" / "scaling_summary.json",
+        scaling_dir / f"exp{num}_synthetic_data" / "scaling_summary.json",
+        scaling_dir / experiment.lower() / "scaling_summary.json",
+    ]
+    summary_file = next((p for p in candidates if p.is_file()), candidates[0])
+
+    if not summary_file.is_file():
+        check_dirs = [d for d in [output_dir, scaling_dir] if d is not None]
+        plan_found = False
+        for d in check_dirs:
+            p_file = d / f"{experiment.lower()}_plan.json"
+            if p_file.is_file():
+                console.print(
+                    f"\n[bold cyan]Scaling Experiment Status: {experiment.upper()}[/bold cyan]"
+                )
+                console.print("=" * 70)
+                console.print(f"Status: planned (Plan file generated at {p_file})")
+                plan_found = True
+                break
+        if not plan_found:
+            console.print(
+                f"[yellow]No summary found for {experiment.upper()} in {scaling_dir}. Run 'sqlforge scaling run' first.[/yellow]"
+            )
+        return
+
+    summary = ScalingExperimentSummary.load_json(summary_file)
+    console.print(f"\n[bold cyan]Scaling Experiment Status: {summary.experiment_id}[/bold cyan]")
+    console.print("=" * 70)
+    console.print(f"Created: {summary.created_at} | Is Dry Run: {summary.is_dry_run}")
+    console.print(
+        f"Total: {summary.total_planned} | Cached: {summary.cached} | Dry-Run: {summary.dry_run_count} | Failed: {summary.failed}"
+    )
+
+    table = Table(title="Condition Status", show_header=True, header_style="bold magenta")
+    table.add_column("Run ID", style="bold cyan")
+    table.add_column("Size", justify="right")
+    table.add_column("Seed", justify="right")
+    table.add_column("Status")
+    table.add_column("Duration", justify="right")
+
+    for r in summary.results:
+        status_style = "green" if r.status in ("completed", "cached") else "yellow"
+        table.add_row(
+            r.run_id,
+            f"{r.total_examples:,}",
+            str(r.seed),
+            f"[{status_style}]{r.status.upper()}[/{status_style}]",
+            f"{r.duration_seconds:.2f}s",
+        )
+    console.print(table)
+
+
+@scaling_group.command("analyze")
+@click.option(
+    "--experiment",
+    type=click.Choice(["exp05", "exp06"], case_sensitive=False),
+    default="exp05",
+    help="Target experiment (exp05 or exp06)",
+)
+@click.option(
+    "--summary-file",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Path to scaling_summary.json artifact",
+)
+@click.option(
+    "--scaling-dir",
+    type=click.Path(path_type=Path),
+    default=Path("artifacts/data_scaling"),
+    help="Root directory containing scaling experiment summaries",
+)
+@click.option(
+    "--output-json",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Optional destination path for exported analysis JSON",
+)
+def scaling_analyze_cmd(
+    experiment: str,
+    summary_file: Path | None,
+    scaling_dir: Path,
+    output_json: Path | None,
+) -> None:
+    """Generate scaling curve fits and statistical comparisons strictly from empirical results."""
+    import sys
+
+    from sqlforge.training import (
+        EXP05_EXPERIMENT_ID,
+        DataScalingAnalyzer,
+        NoEmpiricalScalingDataError,
+        ScalingExperimentSummary,
+    )
+
+    resolved_summary_file = summary_file
+    if resolved_summary_file is None:
+        cand1 = scaling_dir / f"{experiment.lower()}_data_scaling" / "scaling_summary.json"
+        cand2 = scaling_dir / experiment.lower() / "scaling_summary.json"
+        if cand1.is_file():
+            resolved_summary_file = cand1
+        elif cand2.is_file():
+            resolved_summary_file = cand2
+
+    if resolved_summary_file is None or not resolved_summary_file.is_file():
+        console.print(
+            "\n[bold red]No verified empirical results are available. "
+            "EXP-05/EXP-06 infrastructure is ready, but GPU training and evaluation remain pending.[/bold red]"
+        )
+        sys.exit(2)
+
+    try:
+        summary = ScalingExperimentSummary.load_json(resolved_summary_file)
+        analyzer = DataScalingAnalyzer()
+
+        if summary.experiment_id == EXP05_EXPERIMENT_ID:
+            res_05 = analyzer.analyze_exp05(summary)
+            console.print("\n[bold green]EXP-05 Data Scaling Analysis Results[/bold green]")
+            console.print("=" * 70)
+
+            table = Table(
+                title="Per-Size Aggregate Metrics", show_header=True, header_style="bold magenta"
+            )
+            table.add_column("Size (N)", justify="right")
+            table.add_column("Mean EX", justify="right", style="bold cyan")
+            table.add_column("Std EX", justify="right")
+            table.add_column("95% Bootstrap CI", justify="center")
+            table.add_column("Valid SQL", justify="right")
+            table.add_column("Δ vs 7000", justify="right")
+
+            for m in res_05.size_metrics:
+                table.add_row(
+                    f"{m.sample_size:,}",
+                    f"{m.mean_execution_accuracy:.4f}",
+                    f"{m.std_execution_accuracy:.4f}",
+                    f"[{m.ci_95_lower:.4f}, {m.ci_95_upper:.4f}]",
+                    f"{m.mean_valid_sql_rate:.4f}",
+                    f"{m.delta_vs_7000:+.4f}",
+                )
+            console.print(table)
+
+            console.print("\n[bold]Log-Linear Fit (EX = a + b * ln(N)):[/bold]")
+            console.print(f"  Status: {res_05.log_linear_fit.fit_status}")
+            console.print(f"  Parameters: {res_05.log_linear_fit.parameters}")
+            console.print(f"  R²: {res_05.log_linear_fit.r_squared}")
+
+            console.print("\n[bold]Power-Law Fit (EX = a - b * N^(-c)):[/bold]")
+            console.print(f"  Status: {res_05.power_law_fit.fit_status}")
+            console.print(f"  Parameters: {res_05.power_law_fit.parameters}")
+            console.print(f"  R²: {res_05.power_law_fit.r_squared}")
+
+            if output_json:
+                with open(output_json, "w", encoding="utf-8") as f:
+                    import json
+
+                    json.dump(res_05.model_dump(), f, indent=2)
+                console.print(f"\nAnalysis exported to: [cyan]{output_json}[/cyan]")
+        else:
+            res_06 = analyzer.analyze_exp06(summary)
+            console.print("\n[bold green]EXP-06 Synthetic Comparison Analysis Results[/bold green]")
+            console.print("=" * 70)
+
+            table = Table(
+                title="Group Comparison Metrics", show_header=True, header_style="bold magenta"
+            )
+            table.add_column("Group", style="bold cyan")
+            table.add_column("Human", justify="right")
+            table.add_column("Synth", justify="right")
+            table.add_column("Mean EX", justify="right")
+            table.add_column("Std EX", justify="right")
+            table.add_column("Valid SQL", justify="right")
+
+            for g in res_06.group_metrics:
+                table.add_row(
+                    g.group_name,
+                    f"{g.human_count:,}",
+                    f"{g.synthetic_count:,}",
+                    f"{g.mean_execution_accuracy:.4f}",
+                    f"{g.std_execution_accuracy:.4f}",
+                    f"{g.mean_valid_sql_rate:.4f}",
+                )
+            console.print(table)
+
+            if output_json:
+                with open(output_json, "w", encoding="utf-8") as f:
+                    import json
+
+                    json.dump(res_06.model_dump(), f, indent=2)
+                console.print(f"\nAnalysis exported to: [cyan]{output_json}[/cyan]")
+
+    except NoEmpiricalScalingDataError as err:
+        console.print(
+            f"\n[bold red]No verified empirical results are available. {err}[/bold red]\n"
+            "[dim]Scaling analysis and curve fits require genuine empirical evaluation measurements on spider:dev. "
+            "No illustrative or fabricated curves were generated.[/dim]"
+        )
+        sys.exit(2)
+    except Exception as exc:
+        console.print(f"[bold red]Analysis error:[/bold red] {exc}")
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     main()

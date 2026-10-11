@@ -47,7 +47,11 @@ To isolate intrinsic rank scaling without confounding variables, all conditions 
 1. **LoRA Rank ($r$):** $r \in \{8, 16, 32, 64\}$.
 2. **LoRA Alpha ($\alpha$):** $\alpha = 2 \times r$ ($\alpha \in \{16, 32, 64, 128\}$).
 3. **Target Modules:** `all-linear` (default) vs. `attention-only`.
-4. **Replication Seeds:** Seed 42 for all conditions; top-2 ranks replicated on seeds 43 and 44.
+4. **Replication Seeds (Two-Stage Adaptive Design):**
+   - **Stage 1 (Rank Exploration):** Ranks $r \in \{8, 16, 32, 64\}$ evaluated using seed 42 (4 runs).
+   - **Selection Rule:** The top-2 ranks are selected based on highest seed-42 `spider:dev` execution accuracy. Ties are broken by lower trainable parameter count.
+   - **Adaptive Research Note:** This selection is exploratory and adaptive; it must be explicitly reported as adaptive in research publications rather than as an independently confirmed a priori rank choice.
+   - **Stage 2 (Replication):** The two selected best-performing ranks are replicated using seeds 43 and 44 (4 runs). Total empirical runs across both stages = 8.
 
 ---
 
@@ -97,7 +101,7 @@ Executing the genuine EXP-04 rank sweep requires:
 - **Driver / Runtime:** Linux / WSL2 environment with CUDA $\ge 12.1$ and `bitsandbytes>=0.43.0`.
 - **Host Memory:** $\ge 16\text{ GB}$ system RAM.
 - **Disk Storage:** $\ge 30\text{ GB}$ free disk space for base weights, checkpoints, and tokenized datasets.
-- **Estimated Compute Budget:** ~8 GPU-hours total across all rank conditions and seed replications.
+- **Estimated Compute Budget:** ~8 GPU-hours (preliminary estimate across 4 exploration conditions and 4 replication runs; not a guaranteed runtime).
 
 ### Preflight Feasibility Gates
 `PreflightChecker` audits hardware resources before starting the sweep. If GPU acceleration or dependencies are absent on the host (e.g., on a local CPU-only development machine), the sweep orchestrator:
@@ -144,20 +148,23 @@ Hyperparameter sweeps across multiple ranks can take hours. If a run is interrup
 
 ## 6. Machine-Readable Sweep Artifact Schema (`sweep_summary.json`)
 
-Upon completion, the orchestrator outputs a complete JSON summary:
+Upon completion, the orchestrator outputs a complete JSON summary. The schema is illustrated below:
+
+> [!NOTE]
+> **Schema illustration only. No GPU training or empirical evaluation is represented by this example.**
 
 ```json
 {
-  "sweep_id": "sweep_exp-04-rank-sweep_1791056383",
+  "sweep_id": "sweep_exp-04-rank-sweep_dryrun_sample",
   "experiment_id": "EXP-04-RANK-SWEEP",
   "base_model_id": "Qwen/Qwen2.5-Coder-7B-Instruct",
   "method": "qlora",
   "total_planned": 4,
-  "completed": 4,
+  "completed": 0,
   "cached": 0,
   "failed": 0,
   "skipped": 0,
-  "is_dry_run": false,
+  "is_dry_run": true,
   "results": [
     {
       "run_id": "exp04_r16_a32_all_linear_s42",
@@ -166,19 +173,16 @@ Upon completion, the orchestrator outputs a complete JSON summary:
       "target_modules_tag": "all-linear",
       "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
       "seed": 42,
-      "status": "completed",
+      "status": "dry_run",
       "trainable_parameters": 40370176,
       "adapter_size_mb": 77.0,
-      "duration_seconds": 1845.2,
-      "final_loss": 0.3812,
-      "total_steps": 1312,
-      "metrics": {
-        "execution_accuracy": 0.732,
-        "syntax_valid_rate": 0.984,
-        "exact_match": 0.612
-      },
-      "checkpoint_dir": "artifacts/runs/exp04_r16_a32_all_linear_s42",
-      "manifest_verified": true
+      "duration_seconds": 0.0,
+      "final_loss": null,
+      "total_steps": 0,
+      "metrics": {},
+      "checkpoint_dir": null,
+      "manifest_verified": false,
+      "error_message": null
     }
   ],
   "created_at": "2026-10-04T01:10:00Z"
@@ -209,21 +213,24 @@ The `RankSaturationPlotter` (`src/sqlforge/training/plotting.py`) computes:
 The sweep infrastructure is accessible via the `sqlforge sweep` command group:
 
 ```bash
-# 1. Plan sweep and inspect cached runs
+# 1. Plan sweep matrix and inspect parameter estimates
 sqlforge sweep plan --ranks 8,16,32,64 --seeds 42
 
 # 2. Validate controlled invariant variables
 sqlforge sweep validate --ranks 8,16,32,64
 
-# 3. Execute zero-compute dry run across all sweep conditions
-sqlforge sweep run --ranks 8,16,32,64 --dry-run
+# 3. Stage 1: Zero-compute dry run across all 4 rank conditions on exploration seed 42
+sqlforge sweep run --ranks 8,16,32,64 --seeds 42 --dry-run
 
-# 4. Execute live GPU sweep (requires explicit --execute confirmation)
-sqlforge sweep run --ranks 8,16,32,64 --seeds 42,43,44 --execute
+# 4. Stage 1: Live GPU exploration across all 4 ranks on seed 42 (requires explicit --execute)
+sqlforge sweep run --ranks 8,16,32,64 --seeds 42 --execute
 
-# 5. Inspect status of completed or partial sweep
-sqlforge sweep status artifacts/sweeps/sweep_exp-04-rank-sweep_1791056383/sweep_summary.json
+# 5. Stage 2: Replicate the top-2 selected ranks on seeds 43 and 44 (e.g. if ranks 16 and 32 are selected)
+sqlforge sweep run --ranks 16,32 --seeds 43,44 --execute
 
-# 6. Generate Pareto plot and export CSV strictly from empirical results
-sqlforge sweep plot --summary-file artifacts/sweeps/sweep_exp-04-rank-sweep_1791056383/sweep_summary.json --output reports/figures/exp04_rank_saturation_pareto.svg --export-csv reports/tables/exp04_rank_sweep_results.csv
+# 6. Inspect sweep status and cryptographic manifest integrity
+sqlforge sweep status --sweep-dir artifacts/sweeps/exp04_lora_rank_sweep
+
+# 7. Generate Pareto plot and export CSV strictly from empirical results
+sqlforge sweep plot --sweep-dir artifacts/sweeps/exp04_lora_rank_sweep --output-dir reports/figures
 ```

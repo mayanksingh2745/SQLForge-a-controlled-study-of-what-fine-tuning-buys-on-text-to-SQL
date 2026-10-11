@@ -31,7 +31,8 @@ graph TD
     style S5 fill:#2d6a4f,stroke:#1b4332,color:#ffffff
     style S6 fill:#2d6a4f,stroke:#1b4332,color:#ffffff
     style S7 fill:#2d6a4f,stroke:#1b4332,color:#ffffff
-    style S8 fill:#1d3557,stroke:#457b9d,color:#ffffff
+    style S8 fill:#2d6a4f,stroke:#1b4332,color:#ffffff
+    style S9 fill:#1d3557,stroke:#457b9d,color:#ffffff
 ```
 
 ---
@@ -86,12 +87,14 @@ graph TD
 * **Exit Criteria (Infrastructure):** 230 unit/integration tests passing in CI across Ubuntu/Windows; dry-run and mock sweep orchestration verified; Pareto curve generation validated on genuine evaluation fixtures; strict refusal to plot from unevaluated or fabricated numbers.
 * **Exit Criteria (Empirical Experiment):** Requires dedicated GPU instance ($\ge 16\text{ GB}$ VRAM, ~8 GPU hours) and full Spider train/dev dataset; rank saturation Pareto curve plotted with 95% bootstrap CIs; optimal rank identified.
 
-### Step 8: Training Data Scaling & Synthetic vs. Human Data (Next Step)
+### Step 8: Training Data Scaling & Synthetic vs. Human Data
+* **Status:** Infrastructure Complete; Empirical GPU Experiments Pending.
 * **Prerequisites:** Step 7 sweep infrastructure and optimal rank configuration.
-* **Deliverables:** Sample scaling runs ($N \in \{500, 1000, 2000, 5000, 7000\}$) across 3 seeds (`EXP-05`); synthetic data comparison (`EXP-06`).
-* **Exit Criteria:** Empirical scaling laws fitted; sample efficiency comparison documented.
+* **Deliverables:** Sample scaling conditions ($N \in \{500, 1000, 2000, 5000, 7000\}$, 15 runs for `EXP-05`); synthetic comparison groups (`human_only`, `synthetic_only`, `human_synthetic_50_50`, 9 runs for `EXP-06`); deterministic fair-share nested sampler (`NestedStratifiedSpiderSampler`); rank selection reference contract (`RankSelectionReference`) with `UnresolvedRankSelectionError`; 5-stage synthetic data validator (`SyntheticDataValidator`); scaling orchestrator (`DataScalingExperimentOrchestrator`); statistical scaling law analyzer (`DataScalingAnalyzer`) with log-linear and bounded power-law fitting; CLI suite (`sqlforge scaling plan`, `validate`, `sample`, `run`, `status`, `analyze`); empirical protocols (`docs/research/data_scaling_protocol.md`, `docs/research/synthetic_data_protocol.md`).
+* **Exit Criteria (Infrastructure):** 285 unit/integration tests passing in CI across Ubuntu/Windows; offline dry runs verified without GPU; nested stratified subsets cryptographically hashed; strict anti-fabrication enforcement.
+* **Exit Criteria (Empirical Experiment):** Requires dedicated GPU instance ($\ge 16\text{ GB}$ VRAM, ~18 GPU hours total), full eligible Spider train/dev dataset, and verified synthetic corpus; power-law scaling fitted; sample efficiency comparison documented.
 
-### Step 9: Hardened Database Execution Engine & Normalizer
+### Step 9: Hardened Database Execution Engine & Normalizer (Next Step)
 * **Prerequisites:** Step 3 databases.
 * **Deliverables:** Read-only SQLite sandboxing engine, query timeout monitors, multiset result set normalizer, and cryptographic result fingerprinter.
 * **Exit Criteria:** Safe execution of arbitrary generated SQL with zero data mutation and 100% timeout enforcement.
